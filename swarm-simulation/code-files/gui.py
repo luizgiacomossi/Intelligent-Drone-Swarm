@@ -189,7 +189,7 @@ class DroneControlUI(QWidget):
         # We need a new one for physics.
         self.sim_timer = QTimer()
         self.sim_timer.timeout.connect(controller.update_simulation)
-        self.sim_timer.start(16) # ~60 FPS
+        self.sim_timer.start(1) # Poll as fast as possible (idle priority)
         
         print(f"Starting simulation with {num} agents on a {grid_size}x{grid_size} grid...")
     

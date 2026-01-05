@@ -1,6 +1,7 @@
 
 import main
 import pybullet as p
+import time
 
 # Control flags
 simulation_running = False
@@ -20,6 +21,9 @@ market_text = ""
 searched_text = ""
 
 _sim_instance = None
+_last_update_time = 0.0
+_accumulator = 0.0
+_fixed_dt = 1.0 / 60.0  # Target physics step (60Hz)
 
 def start_search():
     global search_active, mission_aborted
@@ -50,6 +54,7 @@ def mark_drone_charged(drone_id):
 
 def run_simulation(num_drones=4, grid_size=4):
     global simulation_running, _sim_instance, home_ready, charged_drones
+    global _last_update_time, _accumulator
     
     if _sim_instance is not None:
         print("Simulation already running/initialized.")
@@ -61,15 +66,39 @@ def run_simulation(num_drones=4, grid_size=4):
     
     # Instantiate the manager
     _sim_instance = main.SimulationManager(num_drones, grid_size)
+    
+    # Initialize timing
+    _last_update_time = time.time()
+    _accumulator = 0.0
 
 def update_simulation():
     """Called by GUI timer on main thread."""
     global simulation_running, _sim_instance
+    global _last_update_time, _accumulator
+    
     if _sim_instance is not None and simulation_running:
         try:
-            running = _sim_instance.step()
-            if not running:
-                stop_simulation()
+            current_time = time.time()
+            frame_time = current_time - _last_update_time
+            _last_update_time = current_time
+            
+            # Clamp frame time to avoid spiral of death on lag spikes (max 0.25s)
+            if frame_time > 0.25:
+                frame_time = 0.25
+                
+            _accumulator += frame_time
+            
+            # Consume accumulated time in fixed steps
+            while _accumulator >= _fixed_dt:
+                running = _sim_instance.step()
+                if not running:
+                    stop_simulation()
+                    return
+                _accumulator -= _fixed_dt
+                
+            # Optional: If you want to interpolate rendering, you'd do it here.
+            # For now, just stepping physics is enough.
+            
         except Exception as e:
             print(f"Simulation Exception: {e}")
             import traceback

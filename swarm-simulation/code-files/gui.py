@@ -3,7 +3,7 @@ import sys
 import threading
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QVBoxLayout, 
-    QHBoxLayout, QSpinBox, QLabel, QTextEdit, QComboBox, QCheckBox
+    QHBoxLayout, QSpinBox, QLabel, QTextEdit, QComboBox, QCheckBox, QButtonGroup, QRadioButton
 )
 from PyQt5.QtCore import QTimer
 import controller
@@ -141,12 +141,16 @@ class DroneControlUI(QWidget):
         camera_layout.addWidget(self.set_cam_btn)
         camera_layout.addWidget(self.debug_lines_chk)
         
-        # Ramp Down Toggle
-        self.ramp_down_chk = QCheckBox("Ramp Down")
-        self.ramp_down_chk.setChecked(True)
-        self.ramp_down_chk.toggled.connect(self.toggle_ramp_down)
-        self.ramp_down_chk.setToolTip("Enable deceleration near waypoints")
-        camera_layout.addWidget(self.ramp_down_chk)
+        
+        # Flight Mode Selector
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Mode:")
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems(["Standard (Ramp)", "Aggressive (Max)", "Path Follow", "Smooth Follow"])
+        self.mode_selector.currentIndexChanged.connect(self.change_flight_mode)
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.mode_selector)
+        camera_layout.addLayout(mode_layout)
 
         # Full Path Toggle
         self.full_path_chk = QCheckBox("Full Path")
@@ -314,10 +318,11 @@ class DroneControlUI(QWidget):
         checked = self.debug_lines_chk.isChecked()
         controller.toggle_debug_lines(checked)
 
-    def toggle_ramp_down(self):
+    def change_flight_mode(self, index):
         import controller
-        checked = self.ramp_down_chk.isChecked()
-        controller.toggle_ramp_down(checked)
+        modes = ["standard", "aggressive", "path_follow", "smooth_follow"]
+        if 0 <= index < len(modes):
+            controller.set_flight_mode(modes[index])
 
     def toggle_full_paths(self):
         import controller

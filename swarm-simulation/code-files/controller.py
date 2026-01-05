@@ -17,11 +17,17 @@ def toggle_debug_lines(state):
     print(f"Debug lines toggled: {state}")
 
 def toggle_ramp_down(state):
-    global use_ramp_down
-    use_ramp_down = state
-    print(f"Velocity Ramp Down: {state}")
+    global flight_mode
+    flight_mode = "standard" if state else "aggressive"
+    print(f"Flight Mode: {flight_mode}")
 
 show_full_paths = True
+flight_mode = "standard" # Options: "standard", "aggressive", "path_follow", "smooth_follow"
+
+def set_flight_mode(mode):
+    global flight_mode
+    flight_mode = mode
+    print(f"Flight Mode set to: {flight_mode}")
 
 def toggle_full_paths(state):
     global show_full_paths

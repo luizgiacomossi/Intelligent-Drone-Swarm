@@ -21,7 +21,7 @@ HOME_POSITION = (0, 0)
 FLY_HEIGHT = 1.0
 SECTION_SWEEP_STEPS = 4
 SEARCH_OFFSET = (6, 4)
-WAYPOINT_TOLERANCE = 0.40
+WAYPOINT_TOLERANCE = 0.20
 HOVER_TIME = 0.05
 MAX_SPEED = 9.0
 BROADCAST_PERIOD = 5.0  # seconds
@@ -43,7 +43,7 @@ def generate_lawnmower_points(center, section_size, steps):
     #Generate lawn-mower pattern fully inside each sectio.
     cx, cy = center
     half = section_size / 2
-    margin = 0.10 * section_size   # a margine of 10% so that the drones cover most of the section without hitting borders.
+    margin = 0.30 * section_size   # a margine of 30% so that the drones cover most of the section without hitting borders.
     x1, x2 = cx - half + margin, cx + half - margin
     y1, y2 = cy - half + margin, cy + half - margin
     ys = np.linspace(y1, y2, steps)
@@ -175,7 +175,15 @@ class SimulationManager:
             sat = 0.8 + (i % 2) * 0.1 # Vary saturation slightly
             val = 0.9
             r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
-            self.drone_colors.append([r, g, b])
+            color = [r, g, b]
+            self.drone_colors.append(color)
+            
+            # Apply color to the drone model (only if not headless to avoid errors)
+            if not self.headless and hasattr(self.env, 'DRONE_IDS'):
+                try:
+                    p.changeVisualShape(self.env.DRONE_IDS[i], -1, rgbaColor=color + [1], physicsClientId=self.env.CLIENT)
+                except Exception:
+                    pass
 
         self.retasker = RetaskingSystem(self.home_targets)
         self.health_status = [0] * num_agents
@@ -566,7 +574,7 @@ class SimulationManager:
                             move_dist = min(dist, MAX_SPEED / self.ctrl_freq)
                             next_pos = self.swarm[k].position + direction * move_dist
                             push_drones = avoidance_from_drones(self.swarm[k].position, all_positions, k, radius=0.5, gain=0.3, max_push=0.4)
-                            push_border = avoidance_from_borders(self.swarm[k].position, (self.grid_size, self.grid_size), 1.5, self.search_offset, margin=0.3, gain=0.5, max_push=0.4)
+                            push_border = avoidance_from_borders(self.swarm[k].position, (self.grid_size, self.grid_size), 1.5, self.search_offset, margin=0.3, gain=0.1, max_push=0)
                             next_pos += 0.5 * (push_drones + push_border)
                             next_pos[2] = FLY_HEIGHT
                             rpm = self.swarm[k].step_toward(next_pos)
@@ -641,18 +649,104 @@ class SimulationManager:
 
             diff = np.array(target_pos) - current_pos
             dist = np.linalg.norm(diff)
+            
+            # Default direction (straight to waypoint)
             direction = diff / (dist + 1e-6)
             
-            if controller.use_ramp_down:
+            if controller.flight_mode == "standard":
                 speed_scale = np.clip(dist / 1.5, 0.8, 2.5)
+            elif controller.flight_mode == "aggressive":
+                speed_scale = 2.5
+            elif controller.flight_mode == "path_follow":
+                speed_scale = 2.5
+                # Vector Field / Path Following Logic
+                # Get start point of segment
+                if self.path_progress[i] == 0:
+                     # Start of section path (or from home)
+                     start_pos = self.last_positions[i] # Approximate
+                else:
+                     start_pos = self.current_targets[i][self.path_progress[i]-1]
+                
+                segment_vec = np.array(target_pos) - np.array(start_pos)
+                seg_len = np.linalg.norm(segment_vec)
+                
+                if seg_len > 0.1:
+                    seg_dir = segment_vec / seg_len
+                    # Project current pos onto line
+                    to_drone = current_pos - np.array(start_pos)
+                    proj_len = np.dot(to_drone, seg_dir)
+                    closest_point = np.array(start_pos) + np.clip(proj_len, 0, seg_len) * seg_dir
+                    
+                    # Correction vector (pull to line)
+                    correction = closest_point - current_pos
+                    
+                    # Desired velocity: Parallel to path + Correction
+                    # We want to move along seg_dir, but pull towards line
+                    desired_dir = seg_dir + correction * 2.0 # Gain on correction
+                    norm = np.linalg.norm(desired_dir)
+                    if norm > 0:
+                        direction = desired_dir / norm
+            
+            elif controller.flight_mode == "smooth_follow":
+                speed_scale = 2.5
+                # Lookahead / Corner Cutting Logic
+                LOOKAHEAD_DIST = 0.6
+                
+                # Identify current segment
+                if self.path_progress[i] == 0:
+                     start_pos = self.last_positions[i]
+                else:
+                     start_pos = self.current_targets[i][self.path_progress[i]-1]
+                
+                segment_vec = np.array(target_pos) - np.array(start_pos)
+                seg_len = np.linalg.norm(segment_vec)
+                
+                if seg_len > 0.01:
+                    seg_dir = segment_vec / seg_len
+                    to_drone = current_pos - np.array(start_pos)
+                    proj_len = np.dot(to_drone, seg_dir)
+                    
+                    # Target point is proj_len + LOOKAHEAD
+                    target_dist_on_path = proj_len + LOOKAHEAD_DIST
+                    
+                    if target_dist_on_path > seg_len:
+                        # We are looking past the current waypoint -> Cut corner to next segment
+                        excess = target_dist_on_path - seg_len
+                        
+                        # Check if there is a next waypoint
+                        if self.path_progress[i] + 1 < len(self.current_targets[i]):
+                            next_wp = self.current_targets[i][self.path_progress[i]+1]
+                            next_seg_vec = np.array(next_wp) - np.array(target_pos)
+                            next_seg_len = np.linalg.norm(next_seg_vec)
+                            if next_seg_len > 0.01:
+                                next_seg_dir = next_seg_vec / next_seg_len
+                                # Point is 'excess' meters into the next segment
+                                lookahead_point = np.array(target_pos) + np.clip(excess, 0, next_seg_len) * next_seg_dir
+                            else:
+                                lookahead_point = np.array(target_pos)
+                        else:
+                            # No next waypoint, just aim at target
+                            lookahead_point = np.array(target_pos)
+                    else:
+                        # Still on current segment
+                        lookahead_point = np.array(start_pos) + max(0, target_dist_on_path) * seg_dir
+                    
+                    # Steer towards lookahead point
+                    diff_la = lookahead_point - current_pos
+                    dist_la = np.linalg.norm(diff_la)
+                    if dist_la > 0.1:
+                        direction = diff_la / dist_la
+            
             else:
-                speed_scale = 2.5 # No ramp down, full speed
+                speed_scale = 1.0 # Fallback
 
             move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * 2)
             next_pos = current_pos + direction * move_dist
 
-            push_drones = avoidance_from_drones(current_pos, all_positions, i, radius=0.5, gain=0.4, max_push=0.6)
-            push_border = avoidance_from_borders(current_pos, (self.grid_size, self.grid_size), 1.5, self.search_offset, margin=0.3, gain=0.6, max_push=0.6)
+            # Navigation/Avoidance Forces
+            # Reduced gains to prevent "repulsion" from valid waypoints
+            push_drones = avoidance_from_drones(current_pos, all_positions, i, radius=0.5, gain=0.2, max_push=0.4)
+            push_border = avoidance_from_borders(current_pos, (self.grid_size, self.grid_size), 1.5, self.search_offset, margin=0.1, gain=0.1, max_push=0)
             next_pos = next_pos + 0.5 * (push_drones + push_border)
             
             if int(t) % 60 == 0:

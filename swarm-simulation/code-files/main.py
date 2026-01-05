@@ -43,7 +43,7 @@ def generate_lawnmower_points(center, section_size, steps):
     #Generate lawn-mower pattern fully inside each sectio.
     cx, cy = center
     half = section_size / 2
-    margin = 0.30 * section_size   # a margine of 30% so that the drones don't need to be exactly at the edge/line of the section.
+    margin = 0.10 * section_size   # a margine of 10% so that the drones cover most of the section without hitting borders.
     x1, x2 = cx - half + margin, cx + half - margin
     y1, y2 = cy - half + margin, cy + half - margin
     ys = np.linspace(y1, y2, steps)
@@ -162,7 +162,20 @@ class SimulationManager:
 
         self.crashed = [False] * num_agents
         self.crash_timer = [0.0] * num_agents
+        self.crashed = [False] * num_agents
+        self.crash_timer = [0.0] * num_agents
         self.debug_lines = [None] * num_agents # To store debug line IDs
+        self.section_path_lines = [[] for _ in range(num_agents)] # To store full path line IDs per agent
+        
+        # Generates distinct colors for each drone (Golden Ratio HSV)
+        self.drone_colors = []
+        import colorsys
+        for i in range(num_agents):
+            hue = (i * 0.618033988749895) % 1.0 # Golden ratio to spread colors
+            sat = 0.8 + (i % 2) * 0.1 # Vary saturation slightly
+            val = 0.9
+            r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
+            self.drone_colors.append([r, g, b])
 
         self.retasker = RetaskingSystem(self.home_targets)
         self.health_status = [0] * num_agents
@@ -188,6 +201,35 @@ class SimulationManager:
                 except Exception:
                     pass
                 self.debug_lines[i] = None
+
+    def clear_full_path(self, drone_id):
+        for line_id in self.section_path_lines[drone_id]:
+            try:
+                p.removeUserDebugItem(line_id, physicsClientId=self.env.CLIENT)
+            except Exception:
+                pass
+        self.section_path_lines[drone_id] = []
+
+    def draw_full_path(self, drone_id, points):
+        if self.headless or not controller.show_full_paths:
+            return
+        
+        # Clear old path first
+        self.clear_full_path(drone_id)
+        
+        if points is None or len(points) < 2:
+            return
+
+        # Draw lines connecting points
+        color = self.drone_colors[drone_id]
+        for k in range(len(points) - 1):
+            p1 = points[k]
+            p2 = points[k+1]
+            try:
+                line_id = p.addUserDebugLine(p1, p2, lineColorRGB=color, lineWidth=1.5, lifeTime=0, physicsClientId=self.env.CLIENT)
+                self.section_path_lines[drone_id].append(line_id)
+            except Exception:
+                pass
 
     def _update_error_metrics(self):
         self.metrics["crashed_count"] = sum(self.crashed)
@@ -577,20 +619,35 @@ class SimulationManager:
             # Draw debug line to waypoint if GUI is active
             # Draw debug line to waypoint if GUI is active (throttled to 6Hz for performance)
             if not self.headless:
+                # Debug Waypoint Line
                 if controller.show_debug_lines and self.env.step_counter % 10 == 0:
                     line_id = self.debug_lines[i]
+                    color = self.drone_colors[i]
                     if line_id is None:
-                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=[1, 0, 0], lifeTime=0, physicsClientId=self.env.CLIENT)
+                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=color, lifeTime=0, physicsClientId=self.env.CLIENT)
                     else:
-                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=[1, 0, 0], lifeTime=0, replaceItemUniqueId=line_id, physicsClientId=self.env.CLIENT)
+                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=color, lifeTime=0, replaceItemUniqueId=line_id, physicsClientId=self.env.CLIENT)
                 elif not controller.show_debug_lines and self.debug_lines[i] is not None:
                      # If toggled off but lines exist, remove them safely
                      self.clear_debug_lines()
+                
+                # Full Section Path Visualization (Cyan Lines)
+                # If enabled and not drawn yet, draw it.
+                if controller.show_full_paths and not self.section_path_lines[i]:
+                    self.draw_full_path(i, self.current_targets[i])
+                # If disabled but drawn, clear it.
+                elif not controller.show_full_paths and self.section_path_lines[i]:
+                    self.clear_full_path(i)
 
             diff = np.array(target_pos) - current_pos
             dist = np.linalg.norm(diff)
             direction = diff / (dist + 1e-6)
-            speed_scale = np.clip(dist / 1.5, 0.8, 2.5)
+            
+            if controller.use_ramp_down:
+                speed_scale = np.clip(dist / 1.5, 0.8, 2.5)
+            else:
+                speed_scale = 2.5 # No ramp down, full speed
+
             move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * 2)
             next_pos = current_pos + direction * move_dist
 
@@ -628,10 +685,15 @@ class SimulationManager:
                             self.current_targets[i] = None
                             self.path_progress[i] = 0
                             self.last_reach_time[i] = t
+                            
+                            # Clear path visualization for the finished section
+                            self.clear_full_path(i)
+                            
                             try:
                                 cell_id, path = next(self.drone_tasks[i])
                                 self.current_section[i] = cell_id
                                 self.current_targets[i] = path
+                                self.draw_full_path(i, path)
                             except StopIteration:
                                 hover_target = np.array([current_pos[0], current_pos[1], FLY_HEIGHT])
                                 rpm = drone.step_toward(hover_target)

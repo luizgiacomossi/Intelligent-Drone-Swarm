@@ -9,11 +9,24 @@ search_active = False
 search_active = False
 mission_aborted = False
 show_debug_lines = True
+use_ramp_down = True
 
 def toggle_debug_lines(state):
     global show_debug_lines
     show_debug_lines = state
     print(f"Debug lines toggled: {state}")
+
+def toggle_ramp_down(state):
+    global use_ramp_down
+    use_ramp_down = state
+    print(f"Velocity Ramp Down: {state}")
+
+show_full_paths = True
+
+def toggle_full_paths(state):
+    global show_full_paths
+    show_full_paths = state
+    print(f"Show Full Paths: {state}")
 
 # Shared text for GUI
 broadcast_text = ""

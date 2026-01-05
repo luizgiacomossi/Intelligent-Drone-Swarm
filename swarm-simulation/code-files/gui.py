@@ -141,6 +141,20 @@ class DroneControlUI(QWidget):
         camera_layout.addWidget(self.set_cam_btn)
         camera_layout.addWidget(self.debug_lines_chk)
         
+        # Ramp Down Toggle
+        self.ramp_down_chk = QCheckBox("Ramp Down")
+        self.ramp_down_chk.setChecked(True)
+        self.ramp_down_chk.toggled.connect(self.toggle_ramp_down)
+        self.ramp_down_chk.setToolTip("Enable deceleration near waypoints")
+        camera_layout.addWidget(self.ramp_down_chk)
+
+        # Full Path Toggle
+        self.full_path_chk = QCheckBox("Full Path")
+        self.full_path_chk.setChecked(True)
+        self.full_path_chk.toggled.connect(self.toggle_full_paths)
+        self.full_path_chk.setToolTip("Show entire section search path")
+        camera_layout.addWidget(self.full_path_chk)
+        
         middle_layout.addLayout(camera_layout)
 
         # Right column (assignments)
@@ -300,6 +314,15 @@ class DroneControlUI(QWidget):
         checked = self.debug_lines_chk.isChecked()
         controller.toggle_debug_lines(checked)
 
+    def toggle_ramp_down(self):
+        import controller
+        checked = self.ramp_down_chk.isChecked()
+        controller.toggle_ramp_down(checked)
+
+    def toggle_full_paths(self):
+        import controller
+        checked = self.full_path_chk.isChecked()
+        controller.toggle_full_paths(checked)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

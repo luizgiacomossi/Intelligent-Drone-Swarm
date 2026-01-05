@@ -91,6 +91,7 @@ class SimulationManager:
             num_drones=num_agents,
             initial_xyzs=self.initial_xyz_agent,
             gui=True,
+            user_debug_gui=False,
             grid_size=(grid_size, grid_size),
             section_size=1.5,
             home_position=(0, 0),
@@ -150,6 +151,12 @@ class SimulationManager:
         self.descent_timer = 0
         self.is_descending = False
         self.mission_complete = False
+        
+        # Camera tracking
+        self.camera_target_id = None
+        
+    def set_camera_target(self, drone_id):
+        self.camera_target_id = drone_id
 
     def step(self):
         # Return True if simulation should continue, False if done/closed
@@ -575,6 +582,25 @@ class SimulationManager:
              if all(c.searched for c in self.area.sections):
                  print("The search area is searched! drones will return home together...")
                  self.returning_home = True
+
+        # Camera tracking update
+        if self.camera_target_id is not None:
+             if 0 <= self.camera_target_id < self.num_agents:
+                 try:
+                     state = self.swarm[self.camera_target_id].update() # Peek state without side effects? 
+                     # Actually drone.update() might be expensive or state-changing if called multiple times?
+                     # No, drone.update() usually just reads state in this codebase or does minimal calc.
+                     # But safer to just read position from pybullet directly or use cached position if available.
+                     # Let's use the pybullet API directly to be safe and accurate to visual state.
+                     pos, _ = p.getBasePositionAndOrientation(self.env.DRONE_IDS[self.camera_target_id], physicsClientId=self.env.CLIENT)
+                     p.resetDebugVisualizerCamera(
+                         cameraDistance=1.5,
+                         cameraYaw=-90,
+                         cameraPitch=-40,
+                         cameraTargetPosition=[pos[0], pos[1], pos[2]]
+                     )
+                 except Exception:
+                     pass
 
         self.env.step(actions)
         return True

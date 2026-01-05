@@ -117,6 +117,25 @@ class DroneControlUI(QWidget):
         self.inject_btn.clicked.connect(self.send_health_status)
         middle_layout.addWidget(self.inject_btn)
 
+        # --- Camera Control ---
+        camera_layout = QHBoxLayout()
+        camera_label = QLabel("Camera Follow:")
+        camera_label.setStyleSheet("font-weight: bold; color: #444;")
+        
+        self.camera_selector = QComboBox()
+        self.camera_selector.addItem("Free Cam", -1)
+        self.camera_selector.addItems([f"Drone {i}" for i in range(16)]) # Pre-populate enough slots
+        # Note: We should dynamically update this based on num_drones, but static is easier for now to avoid complexity in initialization order.
+        
+        self.set_cam_btn = QPushButton("Set Camera")
+        self.set_cam_btn.clicked.connect(self.update_camera_target)
+        
+        camera_layout.addWidget(camera_label)
+        camera_layout.addWidget(self.camera_selector)
+        camera_layout.addWidget(self.set_cam_btn)
+        
+        middle_layout.addLayout(camera_layout)
+
         # Right column (assignments)
         right_layout = QVBoxLayout()
         self.assignment_label = QLabel("Agent–Section Assignments")
@@ -252,6 +271,22 @@ class DroneControlUI(QWidget):
         name = self.health_selector.currentText()
         print(f"[GUI] Injected fault {name} for Agent {agent_id}")
         self.health_display.append(f"[GUI] Injected fault {name} for Agent {agent_id}")
+
+    def update_camera_target(self):
+        import controller
+        # Extract ID from text "Drone X" or use user data if I set it cleanly. 
+        # I set "Free Cam" as -1 userData. For "Drone X", I didn't set userData loop.
+        # Let's trust the text parsing or index.
+        text = self.camera_selector.currentText()
+        if "Free" in text:
+            target_id = -1
+        else:
+            try:
+                target_id = int(text.split(" ")[1])
+            except:
+                target_id = -1
+        
+        controller.set_camera_target(target_id)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,17 @@ def mark_drone_charged(drone_id):
         home_ready[drone_id] = False  # reset flag
         print(f"[Controller] Drone {drone_id} marked as charged.")
 
+def set_camera_target(drone_id):
+    """Called from GUI to set camera target. Pass None or -1 to disable tracking."""
+    global _sim_instance
+    if _sim_instance:
+        if drone_id == -1:
+            _sim_instance.set_camera_target(None)
+            print("[Controller] Camera tracking disabled (Free Cam).")
+        else:
+            _sim_instance.set_camera_target(drone_id)
+            print(f"[Controller] Camera tracking Drone {drone_id}.")
+
 def run_simulation(num_drones=4, grid_size=4):
     global simulation_running, _sim_instance, home_ready, charged_drones
     global _last_update_time, _accumulator

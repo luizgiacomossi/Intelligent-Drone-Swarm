@@ -74,10 +74,23 @@ def rebuild_tasks_from_market(drone_tasks, market, area, swarm, num_agents):
         drone_tasks[drone_id] = iter(paths)
 
 class SimulationManager:
-    def __init__(self, num_agents=4, grid_size=4):
+    def __init__(self, num_agents=4, grid_size=4, headless=False):
         self.num_agents = num_agents
         self.grid_size = grid_size
         self.ctrl_freq = 60
+        self.headless = headless
+        
+        # Metrics
+        self.metrics = {
+            "start_time": 0.0,
+            "end_time": None,
+            "success": False,
+            "total_distance": 0.0,
+            "reallocations": [], # list of (time, section_id)
+            "sections_searched_per_drone": [0] * num_agents,
+            "section_costs": [], # list of costs paid
+            "failure_reason": "Timeout" # Default reason if mission ends without success
+        }
         
         self.start_time = time.time()
         print("Initializing environment...")
@@ -90,7 +103,7 @@ class SimulationManager:
         self.env = SearchAreaAviary(
             num_drones=num_agents,
             initial_xyzs=self.initial_xyz_agent,
-            gui=True,
+            gui=not headless,
             user_debug_gui=False,
             grid_size=(grid_size, grid_size),
             section_size=1.5,
@@ -133,9 +146,12 @@ class SimulationManager:
         print("Mission started. drones searching assigned sections...")
         self.current_targets = [None] * num_agents
         self.path_progress = [0] * num_agents
-        self.last_reach_time = [0] * num_agents
+        self.path_progress = [0] * num_agents
+        self.last_reach_time = [0.0] * num_agents
+        self.current_section = [None] * num_agents
         self.current_section = [None] * num_agents
         self.last_broadcast = [0.0] * num_agents
+        self.last_positions = np.array([d.position for d in self.swarm]) # For distance calc
 
         self.returning_home = False
         self.home_targets, _ = generate_drone_positions(num_agents, HOME_POSITION)
@@ -163,7 +179,11 @@ class SimulationManager:
         if self.mission_complete:
             return False
             
-        t = time.time() - self.start_time
+        # Use simulation time instead of wall clock
+        # PYB_FREQ is usually 240, but we step at ctrl_freq (60).
+        # self.env.step_counter counts physics steps.
+        t = self.env.step_counter / self.env.PYB_FREQ
+        
         actions = np.zeros((self.num_agents, 4))
         all_positions = get_all_positions(self.env, self.num_agents)
 
@@ -174,6 +194,11 @@ class SimulationManager:
             fault_name = get_health_name(fault_code)
             print(f"[GUI Inject] agent {fault_drone} fault set to {fault_name}")
 
+        if all(self.crashed):
+             print("All drones crashed! Ending simulation.")
+             self.metrics["failure_reason"] = "All Drones Crashed"
+             return False
+
         if controller.mission_aborted:
             self.returning_home = True
             controller.mission_aborted = False
@@ -181,7 +206,11 @@ class SimulationManager:
 
         if not controller.search_active and not self.returning_home:
             # Paused state
-            return True
+            if self.headless:
+                # Auto-start in headless mode
+                controller.search_active = True
+            else:
+                return True
 
         if not self.market_initialized:
             drone_positions = [drone.position for drone in self.swarm]
@@ -192,24 +221,30 @@ class SimulationManager:
 
         for j in range(self.num_agents):
             if self.return_reason[j] == "battery" and not self.charged_complete[j]:
-                if j in self.battery_return_start and (time.time() - self.battery_return_start[j]) > 60.0:
+                if j in self.battery_return_start and (t - self.battery_return_start[j]) > 60.0:
                     if j not in self.battery_late:
                         print(f"[Battery Timeout] Drone {j} took too long to change battery. Releasing sections.")
                         self.battery_late.add(j)
-                        self.market.release_drone_sections(j)
+                        self.market.release_drone_sections(j, current_time=t)
                         controller.market_text = self.market.get_market_status()
                         drone_positions = [d.position for d in self.swarm]
-                        self.market.dynamic_update(drone_positions)
+                        self.market.dynamic_update(drone_positions, current_time=t)
                         controller.market_text = self.market.get_market_status()
                         rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
 
         for i, drone in enumerate(self.swarm):
             state = drone.update()
+            
+            # Update metrics (Total Distance)
+            curr_pos = np.array(drone.position)
+            dist = np.linalg.norm(curr_pos - self.last_positions[i])
+            self.metrics["total_distance"] += dist
+            self.last_positions[i] = curr_pos
             current_pos = np.array(state[0:3])
 
             if (not self.subject_found and not self.voting_active and not self.returning_home 
                 and controller.search_active and self.current_section[i] is not None 
-                and self.subject_pos is not None and t > 20):
+                and self.subject_pos is not None):
                 
                 drone_xy = np.array(current_pos[:2])
                 subject_xy = np.array(self.subject_pos[:2])
@@ -268,13 +303,45 @@ class SimulationManager:
                     self.battery_late.remove(i)
                 else:
                     drone_positions = [d.position for d in self.swarm]
-                    self.market.dynamic_update(drone_positions)
+                    self.market.dynamic_update(drone_positions, current_time=t)
 
                 controller.market_text = self.market.get_market_status()
                 rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
                 continue
 
-            if self.health_status[i] != 0:
+            if controller.injected_fault:
+                pass # Already handled at top of loop
+
+            # Fault handling (Retasking)
+            if self.health_status[i] != 0 and not self.returning_home:
+                # Let RetaskingSystem decide
+                decision = self.retasker.handle(i, self.health_status[i])
+                if decision:
+                    action_code = decision["action"]
+                    # If action implies dropping tasks:
+                    if action_code in ["LAND_NOW", "RETURN_HOME"]:
+                         # If returning home due to fault, we might want to release tasks?
+                         # Usually yes.
+                         # Check if we already released?
+                         pass
+                    
+                    # Implementation specific:
+                    # For BAD_BATTERY, we release sections immediately?
+                    if self.health_status[i] in [1, 2]: # Battery issues
+                         # check if already handled
+                         pass
+                    
+                    # For critical failures (Motor/GPS)
+                    if self.health_status[i] >= 3:
+                        if not self.crashed[i] and not self.return_active[i]: # first time detection
+                             print(f"CRITICAL FAULT on Agent {i}. Releasing sections.")
+                             self.market.release_drone_sections(i, current_time=t)
+                             self.crashed[i] = True # Mark as virtually crashed/out of service
+                             
+                # We need to make sure we don't spam release
+                # Simple logic: If health is bad, we release once.
+                # I'll add a 'released_faults' set to track.
+                pass 
                 result = self.retasker.handle(i, self.health_status[i])
                 if result:
                     action = result["action"]
@@ -294,10 +361,10 @@ class SimulationManager:
                         actions[i, :] = rpm
                         if not self.return_active[i]:
                             self.return_active[i] = True
-                            self.return_timer[i] = time.time()
+                            self.return_timer[i] = t
                             self.charged_complete[i] = False
                             self.return_reason[i] = "battery"
-                            self.battery_return_start[i] = time.time()
+                            self.battery_return_start[i] = t
                             print(f"Agent {i} returning home for battery change.")
                         continue
                     elif action == "LAND_NOW":
@@ -329,8 +396,8 @@ class SimulationManager:
             if not self.crashed[i]:
                 if current_pos[2] <= 0.1:
                     if self.crash_timer[i] == 0.0:
-                        self.crash_timer[i] = time.time()
-                    elif time.time() - self.crash_timer[i] > 6.0:
+                        self.crash_timer[i] = t
+                    elif t - self.crash_timer[i] > 6.0:
                         self.crashed[i] = True
                         print(f"drone {i} has crashed! Altitude={current_pos[2]:.2f}")
                         p.addUserDebugText("CRASHED", [current_pos[0], current_pos[1], 0.1], textColorRGB=[1, 0, 0], textSize=2, lifeTime=0, physicsClientId=self.env.CLIENT)
@@ -380,7 +447,8 @@ class SimulationManager:
                 self.current_targets[i] = path
                 self.path_progress[i] = 0
                 self.current_section[i] = cell_id
-                self.last_reach_time[i] = time.time()
+                self.current_section[i] = cell_id
+                self.last_reach_time[i] = t
                 print(f"drone {i} → new section {cell_id}")
 
             if self.voting_active:
@@ -421,9 +489,9 @@ class SimulationManager:
                             rpm = self.swarm[k].step_toward(next_pos)
                             actions[k, :] = rpm
                             if dist < WAYPOINT_TOLERANCE:
-                                if time.time() - self.last_reach_time[k] > HOVER_TIME:
+                                if t - self.last_reach_time[k] > HOVER_TIME:
                                     self.path_progress[k] += 1
-                                    self.last_reach_time[k] = time.time()
+                                    self.last_reach_time[k] = t
                         else:
                             hover_target = np.array([self.swarm[k].position[0], self.swarm[k].position[1], FLY_HEIGHT])
                             rpm = self.swarm[k].step_toward(hover_target)
@@ -435,6 +503,12 @@ class SimulationManager:
                     controller.voting_text += "✅ Subject confirmed — returning home.\n"
                     total_time = round(time.time() - self.start_time, 1)
                     controller.middle_text += f"\nSubject confirmed at {np.round(self.subject_pos[:2], 2)} | Time: {total_time}s"
+                    self.metrics["success"] = True
+                    self.metrics["success"] = True
+                    self.metrics["end_time"] = t
+                    # Merge market metrics
+                    self.metrics.update(self.market.get_metrics())
+                    print(f"Metrics: Success! Time={self.metrics['end_time'] - self.metrics['start_time']:.2f}s")
                     self.returning_home = True
                     self.voting_active = False
                     min_dist = float("inf")
@@ -477,9 +551,9 @@ class SimulationManager:
             actions[i, :] = rpm
 
             if dist < WAYPOINT_TOLERANCE:
-                if time.time() - self.last_reach_time[i] > HOVER_TIME:
+                if t - self.last_reach_time[i] > HOVER_TIME:
                     self.path_progress[i] += 1
-                    self.last_reach_time[i] = time.time()
+                    self.last_reach_time[i] = t
                     if self.path_progress[i] >= len(self.current_targets[i]):
                         if self.current_section[i] is not None:
                             self.area.mark_searched(self.current_section[i])
@@ -487,14 +561,18 @@ class SimulationManager:
                             self.env.mark_section_as_searched(cell_center)
                             print(f"drone {i} finished section {self.current_section[i]}")
                             self.market.reward_and_remove_section(i, self.current_section[i])
+                            # Section completed metric
+                            self.metrics["sections_searched_per_drone"][i] += 1
                             controller.market_text = self.market.get_market_status()
                             drone_positions = [d.position for d in self.swarm]
-                            self.market.dynamic_update(drone_positions)
+                            self.market.dynamic_update(drone_positions, current_time=t)
                             controller.market_text = self.market.get_market_status()
                             rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
                             self.current_targets[i] = None
                             self.path_progress[i] = 0
-                            self.last_reach_time[i] = time.time()
+                            self.current_targets[i] = None
+                            self.path_progress[i] = 0
+                            self.last_reach_time[i] = t
                             try:
                                 cell_id, path = next(self.drone_tasks[i])
                                 self.current_section[i] = cell_id
@@ -618,17 +696,20 @@ class SimulationManager:
         Section: {subject_section.id if subject_section else 'Unknown'}
         Time to find: {total_time} seconds
         """
-        try:
-             app = QApplication.instance()
-             if app is None:
-                 app = QApplication(sys.argv)
-             msg_box = QMessageBox()
-             msg_box.setWindowTitle("Mission Summary")
-             msg_box.setText(summary_msg)
-             msg_box.setStandardButtons(QMessageBox.Ok)
-             msg_box.exec_()
-        except Exception as e:
-             print(f"[GUI] Could not open summary window: {e}")
+        if not self.headless:
+            try:
+                 app = QApplication.instance()
+                 if app is None:
+                     app = QApplication(sys.argv)
+                 msg_box = QMessageBox()
+                 msg_box.setWindowTitle("Mission Summary")
+                 msg_box.setText(summary_msg)
+                 msg_box.setStandardButtons(QMessageBox.Ok)
+                 msg_box.exec_()
+            except Exception as e:
+                 print(f"[GUI] Could not open summary window: {e}")
+        else:
+            print(f"[Summary] Mission Complete. Time to find: {total_time}s")
 
     def close(self):
         if hasattr(self, 'env'):

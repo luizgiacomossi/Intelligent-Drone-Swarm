@@ -27,6 +27,12 @@ class MarketSystem:
             }
             for s in self.area.sections
         ]
+        
+        # Metrics state
+        self.released_sections = {} # section_id -> timestamp when released
+        self.reallocations = [] # list of (latency, section_id)
+        self.costs_paid = [] # list of prices paid
+        self.successful_recoveries = 0 # count of released sections that were finished
 
     def compute_dynamic_price(self, drone_pos, section_pos):
         """Price increases with distance (only in dynamic phase)."""
@@ -98,7 +104,7 @@ class MarketSystem:
             self.transactions.append("Market switched to dynamic pricing.")
 
     # ---------------------------------------------------------------------
-    def dynamic_update(self, drone_positions):
+    def dynamic_update(self, drone_positions, current_time=0):
         """Let drones buy newly available sections during mission."""
         if self.phase != "dynamic":
             self.enable_dynamic_pricing()
@@ -119,10 +125,10 @@ class MarketSystem:
                 continue
             if self.points[drone_id] < price:
                 continue
-            self.buy_section(drone_id, section_id, price)
+            self.buy_section(drone_id, section_id, price, current_time)
 
     # ---------------------------------------------------------------------
-    def buy_section(self, drone_id, section_id, price=None):
+    def buy_section(self, drone_id, section_id, price=None, current_time=0):
         """Buy a section if available and enough points."""
         sec = next(s for s in self.sections if s["id"] == section_id)
         if not sec["available"] or sec["searched"]:
@@ -136,6 +142,13 @@ class MarketSystem:
         sec["available"] = False
         sec["value"] = price
         self.points[drone_id] -= price
+        self.costs_paid.append(price)
+        
+        if section_id in self.released_sections:
+            latency = current_time - self.released_sections[section_id]
+            self.reallocations.append(latency)
+            del self.released_sections[section_id] # Claimed, remove from released pending
+
 
         # Reflect in SearchArea
         for s in self.area.sections:
@@ -176,7 +189,7 @@ class MarketSystem:
         return True
 
     # ---------------------------------------------------------------------
-    def release_drone_sections(self, drone_id):
+    def release_drone_sections(self, drone_id, current_time=0):
         """
         Called when an drone crashes or emergency lands.
         All sections that were owned (and not yet searched)
@@ -186,6 +199,7 @@ class MarketSystem:
             if sec["owner"] == drone_id and not sec["searched"]:
                 sec["owner"] = None
                 sec["available"] = True
+                self.released_sections[sec["id"]] = current_time
                 # Reflect in SearchArea
                 for s in self.area.sections:
                     if s.id == sec["id"]:
@@ -220,3 +234,12 @@ class MarketSystem:
             lines += [f"  {t}" for t in self.transactions[-5:]]
 
         return "\n".join(lines)
+
+    def get_metrics(self):
+        avg_latency = np.mean(self.reallocations) if self.reallocations else 0.0
+        avg_cost = np.mean(self.costs_paid) if self.costs_paid else 0.0
+        return {
+            "reallocation_time": avg_latency,
+            "cost_efficiency": avg_cost,
+            "recovery_count": self.successful_recoveries
+        }

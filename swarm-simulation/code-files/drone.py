@@ -2,7 +2,7 @@ import numpy as np
 import time
 from gym_pybullet_drones.control.DSLPIDControl import DSLPIDControl
 from gym_pybullet_drones.utils.enums import DroneModel
-from gym_pybullet_drones.FLA402.tables import HEALTH_CODES
+from tables import HEALTH_CODES
 
 
 class Drone:

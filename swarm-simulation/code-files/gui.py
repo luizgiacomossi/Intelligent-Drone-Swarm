@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QTimer
 import controller
-from gym_pybullet_drones.FLA402.tables import get_all_health_codes
+from tables import get_all_health_codes
 
 class DroneControlUI(QWidget):
     def __init__(self):
@@ -180,7 +180,17 @@ class DroneControlUI(QWidget):
     def run_simulation_with_count(self):
         num = self.drone_count.value()
         grid_size = self.grid_size_spin.value()
-        threading.Thread(target=controller.run_simulation, args=(num, grid_size)).start()
+        
+        # Initialize simulation structure
+        controller.run_simulation(num, grid_size)
+        
+        # Start a fast timer for the physics loop (e.g. 60Hz or faster)
+        # Note: We already have a slow timer (1s) for update_displays.
+        # We need a new one for physics.
+        self.sim_timer = QTimer()
+        self.sim_timer.timeout.connect(controller.update_simulation)
+        self.sim_timer.start(16) # ~60 FPS
+        
         print(f"Starting simulation with {num} agents on a {grid_size}x{grid_size} grid...")
     
     def charge_drone(self):

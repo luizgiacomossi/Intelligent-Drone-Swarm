@@ -21,3 +21,9 @@ main.pdf
 db_name.txt
 local.db
 .csv
+
+# Simulation artifacts
+gym-pybullet-drones/
+swarm-simulation/objects/human_urdf/
+swarm-simulation/code-files/subject_location.json
+.DS_Store

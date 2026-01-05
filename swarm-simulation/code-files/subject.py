@@ -4,7 +4,7 @@ import time
 import os
 import json
 import random
-from gym_pybullet_drones.FLA402.searchArea import SearchArea
+from searchArea import SearchArea
 
 
 class SubjectManager:

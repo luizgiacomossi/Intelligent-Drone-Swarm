@@ -1,5 +1,5 @@
 import numpy as np
-from gym_pybullet_drones.FLA402.tables import get_health_name
+from tables import get_health_name
 
 class RetaskingSystem:
     def __init__(self, home_positions):

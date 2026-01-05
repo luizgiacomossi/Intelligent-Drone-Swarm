@@ -2,7 +2,7 @@ import numpy as np
 import time
 import pybullet as p
 import time
-from gym_pybullet_drones.FLA402.env import SearchAreaAviary
+from env import SearchAreaAviary
 
 
 def generate_drone_positions(num_drones, radius, home_xy):

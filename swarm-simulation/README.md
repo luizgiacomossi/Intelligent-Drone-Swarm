@@ -1,36 +1,61 @@
-# Follow the steps bellow to get started
 
-## gym-pybullet-drones
+# Intelligent Replanning Drone Swarm Simulation
 
-This is a minimalist refactoring of the original `gym-pybullet-drones` repository, designed for compatibility with [`gymnasium`](https://github.com/Farama-Foundation/Gymnasium), [`stable-baselines3` 2.0](https://github.com/DLR-RM/stable-baselines3/pull/1327), and SITL [`betaflight`](https://github.com/betaflight/betaflight)/[`crazyflie-firmware`](https://github.com/bitcraze/crazyflie-firmware/).
-
-## Intellignet Replanning Drone Swarm
-An intelligent replanning drone swarm was created for this project. To run and test it, follow the instructions below.
+This project implements an intelligent drone swarm simulation using PyBullet.
 
 ## Installation
 
+### 1. Prerequisites
+- [Anaconda](https://www.anaconda.com/) or Miniconda
+- Git
+
+### 2. Setup Environment
+
+First, create a new conda environment:
+
 ```sh
-git clone https://github.com/utiasDSL/gym-pybullet-drones.git
-cd gym-pybullet-drones/
-
 conda create -n drones python=3.10
-conda activate drones # 'drones' is the name you will call your envirnoment, but you can change it to whatever you want. 
+conda activate drones
+```
 
-pip3 install --upgrade pip
-pip3 install -e . # if needed, `sudo apt install build-essential` to install `gcc` and build `pybullet`
+### 3. Install Dependencies
+
+You need to install `gym-pybullet-drones` and other requirements. 
+
+**Option A (Recommended): Install as a library**
+```sh
+# Clone gym-pybullet-drones
+git clone https://github.com/utiasDSL/gym-pybullet-drones.git
+
+# Install it in editable mode
+cd gym-pybullet-drones
+pip install -e .
+
+# Install PyQt5 for the GUI
 pip install PyQt5
 ```
 
-## Use
-```sh
-git clone https://github.com/MDU-C2/Intelligent-Drone-Swarm.git
-cd Intelligent-Drone-Swarm/simulation/code/
-# Before running the simulation, you will have to change the path to the subject.
-# 1. Open the main.py file.
-# 2. line 124, change the path there to the path of where you stored the .urdf file (you can find the file in the folder Object(.urdf files).
+## Running the Simulation
 
-# Once that is done, you can now run the gui.py file to run the simulation.
-python gui.py
-```
+1. Navigate to the simulation code directory:
+   ```sh
+   cd path/to/Intelligent-Drone-Swarm/swarm-simulation/code-files
+   ```
 
+2. Activate your environment if not already active:
+   ```sh
+   conda activate drones
+   ```
 
+3. Run the GUI:
+   ```sh
+   python gui.py
+   ```
+
+## Usage
+- **Control Panel**: Use the GUI to set the number of agents and grid size.
+- **Run Simulation**: Click "Run Simulation" to start the PyBullet visualization.
+- **Start Search**: Once running, click "Start Search" to begin the swarm mission.
+
+## Note for macOS Users
+The simulation has been updated to run the PyBullet window on the main thread to prevent crashes on macOS. Ensure you use the provided `gui.py` to launch the simulation.

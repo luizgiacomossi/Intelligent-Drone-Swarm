@@ -54,7 +54,7 @@ The software is organized into modular components managed by a central `Simulati
 ├── avoidance.py                # Potential Field collision avoidance
 ├── subject.py                  # Target spawning manager
 ├── tables.py                   # Lookup tables for Health Codes & Commands
-└── documentation/              # PhD-level Project Documentation
+└── documentation/              # Detailed Project Documentation
     ├── methodology.md          # Math models, Algorithms & Introduction
     ├── experiments.md          # Experimental setup & Statistical methods
     ├── 01_introduction.md      # (Detailed) Problem statement

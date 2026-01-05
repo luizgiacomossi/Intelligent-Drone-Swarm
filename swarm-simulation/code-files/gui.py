@@ -3,7 +3,7 @@ import sys
 import threading
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QVBoxLayout, 
-    QHBoxLayout, QSpinBox, QLabel, QTextEdit, QComboBox
+    QHBoxLayout, QSpinBox, QLabel, QTextEdit, QComboBox, QCheckBox
 )
 from PyQt5.QtCore import QTimer
 import controller
@@ -130,9 +130,16 @@ class DroneControlUI(QWidget):
         self.set_cam_btn = QPushButton("Set Camera")
         self.set_cam_btn.clicked.connect(self.update_camera_target)
         
+        # Toggle Debug Lines
+        self.debug_lines_chk = QCheckBox("Show Path Lines")
+        self.debug_lines_chk.setChecked(True)
+        self.debug_lines_chk.toggled.connect(self.toggle_debug_lines)
+        self.debug_lines_chk.setToolTip("Show red lines pointing to next waypoint")
+        
         camera_layout.addWidget(camera_label)
         camera_layout.addWidget(self.camera_selector)
         camera_layout.addWidget(self.set_cam_btn)
+        camera_layout.addWidget(self.debug_lines_chk)
         
         middle_layout.addLayout(camera_layout)
 
@@ -287,6 +294,11 @@ class DroneControlUI(QWidget):
                 target_id = -1
         
         controller.set_camera_target(target_id)
+
+    def toggle_debug_lines(self):
+        import controller
+        checked = self.debug_lines_chk.isChecked()
+        controller.toggle_debug_lines(checked)
 
 
 if __name__ == "__main__":

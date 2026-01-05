@@ -6,7 +6,14 @@ import time
 # Control flags
 simulation_running = False
 search_active = False
+search_active = False
 mission_aborted = False
+show_debug_lines = True
+
+def toggle_debug_lines(state):
+    global show_debug_lines
+    show_debug_lines = state
+    print(f"Debug lines toggled: {state}")
 
 # Shared text for GUI
 broadcast_text = ""

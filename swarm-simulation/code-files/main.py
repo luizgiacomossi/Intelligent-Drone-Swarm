@@ -89,7 +89,11 @@ class SimulationManager:
             "reallocations": [], # list of (time, section_id)
             "sections_searched_per_drone": [0] * num_agents,
             "section_costs": [], # list of costs paid
-            "failure_reason": "Timeout" # Default reason if mission ends without success
+            "sections_searched_per_drone": [0] * num_agents,
+            "section_costs": [], # list of costs paid
+            "failure_reason": "Timeout", # Default reason if mission ends without success
+            "crashed_count": 0,
+            "failed_count": 0
         }
         
         self.start_time = time.time()
@@ -155,8 +159,10 @@ class SimulationManager:
 
         self.returning_home = False
         self.home_targets, _ = generate_drone_positions(num_agents, HOME_POSITION)
+
         self.crashed = [False] * num_agents
         self.crash_timer = [0.0] * num_agents
+        self.debug_lines = [None] * num_agents # To store debug line IDs
 
         self.retasker = RetaskingSystem(self.home_targets)
         self.health_status = [0] * num_agents
@@ -173,10 +179,31 @@ class SimulationManager:
         
     def set_camera_target(self, drone_id):
         self.camera_target_id = drone_id
+        
+    def clear_debug_lines(self):
+        for i, line_id in enumerate(self.debug_lines):
+            if line_id is not None:
+                try:
+                    p.removeUserDebugItem(line_id, physicsClientId=self.env.CLIENT)
+                except Exception:
+                    pass
+                self.debug_lines[i] = None
+
+    def _update_error_metrics(self):
+        self.metrics["crashed_count"] = sum(self.crashed)
+        # Failed = Not crashed AND (Bad Health OR Late Battery)
+        # We assume health_status!=0 implies failure/fault.
+        failed = 0
+        for i in range(self.num_agents):
+            if not self.crashed[i]:
+                if self.health_status[i] != 0 or i in self.battery_late:
+                    failed += 1
+        self.metrics["failed_count"] = failed
 
     def step(self):
         # Return True if simulation should continue, False if done/closed
         if self.mission_complete:
+            self._update_error_metrics()
             return False
             
         # Use simulation time instead of wall clock
@@ -197,6 +224,20 @@ class SimulationManager:
         if all(self.crashed):
              print("All drones crashed! Ending simulation.")
              self.metrics["failure_reason"] = "All Drones Crashed"
+             self._update_error_metrics()
+             return False
+
+        # Additional Check: If everyone is either crashed or sitting at home (battery dead/fault), we can't search.
+        # This prevents infinite loops if max_steps is removed.
+        drones_incapacitated = []
+        for i in range(self.num_agents):
+            is_down = self.crashed[i] or (i < len(controller.home_ready) and controller.home_ready[i])
+            drones_incapacitated.append(is_down)
+        
+        if all(drones_incapacitated) and not self.mission_complete:
+             print("All drones are crashed or grounded at home. Mission failed (Swarm Depleted).")
+             self.metrics["failure_reason"] = "Swarm Depleted"
+             self._update_error_metrics()
              return False
 
         if controller.mission_aborted:
@@ -532,6 +573,20 @@ class SimulationManager:
                 continue
 
             target_pos = self.current_targets[i][self.path_progress[i]]
+            
+            # Draw debug line to waypoint if GUI is active
+            # Draw debug line to waypoint if GUI is active (throttled to 6Hz for performance)
+            if not self.headless:
+                if controller.show_debug_lines and self.env.step_counter % 10 == 0:
+                    line_id = self.debug_lines[i]
+                    if line_id is None:
+                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=[1, 0, 0], lifeTime=0, physicsClientId=self.env.CLIENT)
+                    else:
+                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=[1, 0, 0], lifeTime=0, replaceItemUniqueId=line_id, physicsClientId=self.env.CLIENT)
+                elif not controller.show_debug_lines and self.debug_lines[i] is not None:
+                     # If toggled off but lines exist, remove them safely
+                     self.clear_debug_lines()
+
             diff = np.array(target_pos) - current_pos
             dist = np.linalg.norm(diff)
             direction = diff / (dist + 1e-6)

@@ -10,7 +10,7 @@ import os
 # Ensure we can import local modules
 sys.path.append(os.getcwd())
 
-def run_experiment(num_agents, num_faults=0, max_steps=100000, headless=True):
+def run_experiment(num_agents, num_faults=0, max_steps=10000000, headless=True):
     """
     Runs a single simulation experiment.
     """
@@ -26,7 +26,7 @@ def run_experiment(num_agents, num_faults=0, max_steps=100000, headless=True):
     controller.charged_drones = set()
     
     # Init Simulation
-    sim = main.SimulationManager(num_agents=num_agents, grid_size=4, headless=headless)
+    sim = main.SimulationManager(num_agents=num_agents, grid_size=8, headless=headless)
     
     # Inject faults if requested (simple modification to main/controller for pre-planned faults)
     # For now, we will simulate faults by manually injecting them at step X.
@@ -95,7 +95,9 @@ def run_experiment(num_agents, num_faults=0, max_steps=100000, headless=True):
         "reallocation_time": sim.metrics.get("reallocation_time", 0.0),
         "cost_efficiency": sim.metrics.get("cost_efficiency", 0.0),
         "recovery_rate": sim.metrics.get("recovery_count", 0),
-        "failure_reason": sim.metrics.get("failure_reason", "Unknown") if not sim.metrics.get("success", False) else None
+        "failure_reason": sim.metrics.get("failure_reason", "Unknown") if not sim.metrics.get("success", False) else None,
+        "crashed_count": sim.metrics.get("crashed_count", 0),
+        "failed_count": sim.metrics.get("failed_count", 0)
     }
     
     sim.env.close()

@@ -21,9 +21,9 @@ HOME_POSITION = (0, 0)
 FLY_HEIGHT = 1.0
 SECTION_SWEEP_STEPS = 4
 SEARCH_OFFSET = (6, 4)
-WAYPOINT_TOLERANCE = 0.10
-HOVER_TIME = 0.2
-MAX_SPEED = 6.0
+WAYPOINT_TOLERANCE = 0.40
+HOVER_TIME = 0.05
+MAX_SPEED = 9.0
 BROADCAST_PERIOD = 5.0  # seconds
 RETURN_TIMEOUT = 10.0
 
@@ -535,7 +535,7 @@ class SimulationManager:
             diff = np.array(target_pos) - current_pos
             dist = np.linalg.norm(diff)
             direction = diff / (dist + 1e-6)
-            speed_scale = np.clip(dist / 3.0, 0.5, 2.0)
+            speed_scale = np.clip(dist / 1.5, 0.8, 2.5)
             move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * 2)
             next_pos = current_pos + direction * move_dist
 

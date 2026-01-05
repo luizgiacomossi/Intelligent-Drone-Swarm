@@ -1,72 +1,70 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/MDU-C2/Intelligent-Drone-Swarm/blob/main/images/IDS-logo-white.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/MDU-C2/Intelligent-Drone-Swarm/blob/main/images/IDS-logo-black.png">
-  <img alt="IDS Logo" width="500" src="https://github.com/MDU-C2/Intelligent-Drone-Swarm/blob/main/images/IDS-logo-black.png">
-</picture>
+# Intelligent Drone Swarm for Search and Rescue (SAR)
 
-# Intelligent Replanning Drone Swarm (IRDS)
-*Intelligent Replanning Protocol for a Fail-Operational Drone Swarm*
+This repository contains a high-fidelity simulation of a Multi-UAV system designed for resilient Search and Rescue missions. The system implements a **Decentralized Market-Based Consensus** strategy to coordinate a swarm of drones in dynamic environments, featuring fault tolerance, real-time retasking, and collaborative target verification.
 
-[Contributors in this project](CONTRIBUTORS.md)
+## 🚀 Key Features
 
-[Commonly used terms in the project](commonly-used-terms.md)
+*   **Market-Based Task Allocation**: Drones bid for search sections based on a dynamic pricing model (Distance + Base Value), ensuring efficient workload distribution.
+*   **Resilient Retasking**: Automatic detection of agent failures (e.g., Low Battery, GPS Failure). Failed agents release their tasks back to the market for immediate reallocation.
+*   **Consensus Verification**: A spatial voting protocol where neighbor drones are recruited to verify potential target detections, minimizing false positives ($P_{error} < 10^{-4}$).
+*   **Reactive Collision Avoidance**: Decentralized navigation using Artificial Potential Fields (APF).
+*   **Physics-Based Simulation**: Built on `gym-pybullet-drones` for realistic flight dynamics and sensor simulation.
 
-## Introduction
-This project addresses the implementation of swarm-level coordination logic that uses detailed health information from all UAVs in the swarm to ensure the overall mission can continue with maximum efficiency, even when individual UAVs are compromised.
+## 🛠️ Installation & Usage
 
-The project requires students to design, implement, and validate a decentralized protocol for secure and intelligent mission replanning. The primary task is to develop the distributed algorithms that allow the swarm to collectively respond to a UAV's broadcasted 'degraded health' status. This involves investigating and implementing a robust consensus mechanism to ensure all agents securely agree on a new plan and designing the logic for re-allocating the compromised UAV's tasks (e.g., its search area) to healthy agents. A key challenge is to also re-task the partially failed UAV to a less critical but still useful role, such as a communications relay, thereby maximizing the utility of every asset. The final implementation must be validated in a high-fidelity simulation environment using fault-injection techniques to quantitatively measure the improvement in mission continuity.
+### Prerequisites
+*   Python 3.8+
+*   `numpy`, `pybullet`, `gym-pybullet-drones`
+*   `PyQt5` (for the control interface)
 
-## Reference Drone
-Harris Aerial, Carrier H6HL: <a href ="https://harrisaerial.com/carrier-drones/carrier-h6hl/">Website</a>, <a href ="https://harrisaerial.com/wp-content/uploads/2025/09/H6HL_brochure_final_2025.pdf">Brochure</a>
+### Running the Simulation
+To start the main interactive simulation with the GUI control panel:
+```bash
+python main.py
+```
+*   **GUI Controls**: Use the control panel to Start/Pause, Inject Faults, or abort the mission.
+*   **Visualization**: The PyBullet window shows the 3D drone behaviors, while the GUI displays real-time market logs and health status.
 
-## This repository contains
-- [Cheat sheets](cheat-sheets)
-  - LaTeX
-  - GitHub
-  - HTML
-  - ID list
-  - Microsoft
-  - Risk Assessment
-- [Database](database) <i>(and database code)</i>
-- [Deliverables](deliverables)
-  - Project Plan
-  - Management Plans
-- Some [images](images) used in the project
-- [Protocols](protocols) from daily and weekly meetings
-- [Role descriptions](role-descriptions) for all roles involved
+### Running Experiments
+To run the headless batch experiments (Scalability & Fault Tolerance analysis):
+```bash
+python experiments.py
+```
+Results will be saved to `experiment_results.csv`.
 
-## Meetings
+## 🏗️ System Architecture
 
-### "Daily" Meetings, Tuesday - Friday, 8:40 - 9:00
-  - AKA: Daily Scrum
-    -  **Yesterday’s achievements:** Describe what you were able to do yesterday.
-    -  **Today’s achievements:** Describe what you intend to do today.
-    -  **Blockers:** Describe anything that you need answering or unblocking.
+The software is organized into modular components managed by a central `SimulationManager`.
 
-### Weekly Meeting, every Mondayy 9:00 - 10:00
-  - AKA: Weekly Scrum/Sprint Review
-    - **Progress:** Review all tasks done.
-    - **Slowed down:** Tasks that have not made the progress we were expecting.
-    - **Stopped:** Tasks stopped in their tracks.
-  
-### Meetings with Luiz
-- Every Tuesday 14:00 - 15:00
+*   **`SimulationManager`**: The orchestration loop synchronizing physics (PyBullet) and logic (60Hz).
+*   **`MarketSystem`**: Manages the virtual economy, auctions sections, and handles currency transactions ($W_i$).
+*   **`RetaskingSystem`**: A decision logic lookup table mapping Health Codes $\to$ Recovery Actions (e.g., `BAD_BATTERY` $\to$ `RETURN_HOME`).
+*   **`Drone`**: Agent class encapsulating PID control, state estimation, and sensor simulation.
 
-## Other
-- Every Thursday 13:15 - 15:00: Bowling and other activities at Västerås 9-pin bowling (Lugna gatan 18)
-- 2026-01-08: Robotics students present their projects at C2. Dependable systems are invited to present their projects too.
+## 📂 File Structure
 
-## Important links
-<ul>
-  <li><a href="https://studentmdh.sharepoint.com/sites/IntelligentDroneSwarm/Delade%20dokument/Forms/AllItems.aspx">SharePoint</a></li>
-  <ul>
-    <li>Documents waiting for review</li>
-    <li>Images</li>
-    <li>Reference Literature</li>
-    <li>Review Protocols</li>
-  </ul>
-  <li><a href="https://studentmdh.sharepoint.com/:x:/r/sites/IntelligentDroneSwarm/Delade%20dokument/FLA402-Time-Log.xlsx?d=wba6795dc4c9044099e3155889715a648&csf=1&web=1&e=tto7wd">Time Report</a></li>
-  <li><a href="https://fla402-ids.atlassian.net/jira/software/projects/IDS/boards/2">Jira</a> (activity and task management + timeline)</li>
-  <li><a href="https://drive.google.com/drive/folders/1vXKNkRGslyUG7h9t5cG3s3EqDK8taNg0?usp=sharing">Google Drive folder</a> (used for Draw.io)</li>
-  <li><a href="https://github.com/luizgiacomossi/pybullet_search_rescue_uavs">gym-pybullet-drones</a></li>
-</ul>
+```text
+.
+├── main.py                     # Entry point for interactive simulation
+├── experiments.py              # Batch experiment runner
+├── market.py                   # Market mechanism & auction logic
+├── retasking.py                # Fault handling state machine
+├── drone.py                    # UAV agent class
+├── env.py                      # Custom PyBullet environment wrapper
+├── avoidance.py                # Potential Field collision avoidance
+├── subject.py                  # Target spawning manager
+├── tables.py                   # Lookup tables for Health Codes & Commands
+└── documentation/              # PhD-level Project Documentation
+    ├── methodology.md          # Math models, Algorithms & Introduction
+    ├── experiments.md          # Experimental setup & Statistical methods
+    ├── 01_introduction.md      # (Detailed) Problem statement
+    ├── 02_mathematical_model.md# (Detailed) Formal definitions
+    ├── 03_algorithm_implementation.md # (Detailed) Code specs
+    └── 04_experiments_and_results.md # (Detailed) Metrics
+```
+
+## 📚 Documentation
+
+For detailed theoretical/mathematical explanations, please refer to the `documentation/` folder:
+*   [Methodology (Unified)](documentation/methodology.md)
+*   [Experimental Results (Unified)](documentation/experiments.md)

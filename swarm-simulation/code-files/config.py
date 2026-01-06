@@ -1,0 +1,12 @@
+# config.py
+
+# Constants used by simulation
+HOME_POSITION = (0, 0)
+FLY_HEIGHT = 1.0
+SECTION_SWEEP_STEPS = 4
+SEARCH_OFFSET = (6, 4)
+WAYPOINT_TOLERANCE = 0.20
+HOVER_TIME = 0.05
+MAX_SPEED = 9.0
+BROADCAST_PERIOD = 5.0  # seconds
+RETURN_TIMEOUT = 10.0

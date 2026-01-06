@@ -121,7 +121,7 @@ def main_experiment():
     # Scenario A: Scalability (2 to 8 agents)
     # Using small iteration count for testing (Iter=1). 
     # let's do 3 iterations for demonstration.
-    ITERATIONS = 3
+    ITERATIONS = 30
     
     print("Starting Scalability Batch...")
     for n in [2, 4, 8]:
@@ -134,7 +134,7 @@ def main_experiment():
             
     # Scenario B: Fault Tolerance
     print("Starting Fault Tolerance Batch...")
-    for f in [1, 2]:
+    for f in [1, 2, 3]:
         for i in range(ITERATIONS):
             res = run_experiment(num_agents=8, num_faults=f)
             res["scenario"] = "FaultCoverage"

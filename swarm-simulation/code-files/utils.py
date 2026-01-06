@@ -15,7 +15,14 @@ def generate_drone_positions(num_agents, home_xy):
     return np.array(positions), radius
 
 def generate_lawnmower_points(center, section_size, steps):
-    # Generate lawn-mower pattern fully inside each section.
+    """
+    Generates a lawnmower pattern with intermediate waypoints along scan lines.
+    
+    Args:
+        center (tuple): (x, y) center of the section.
+        section_size (float): Width/Height of the square section.
+        steps (int): Number of horizontal scan lines (rows).
+    """
     cx, cy = center
     half = section_size / 2
     margin = LAWNMOWER_MARGIN_FACTOR * section_size   # a margin of 30% so that the drones cover most of the section without hitting borders.
@@ -31,6 +38,7 @@ def generate_lawnmower_points(center, section_size, steps):
             pts += [(x2, y, FLY_HEIGHT), (x1, y, FLY_HEIGHT)]
         flip = not flip
     return pts
+
 
 def rebuild_tasks_from_market(drone_tasks, market, area, swarm, num_agents):
     for drone_id in range(num_agents):

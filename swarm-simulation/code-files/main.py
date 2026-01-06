@@ -25,7 +25,10 @@ from config import (
     SUBJECT_DETECTION_DIST, VERIFICATION_DIST, VOTING_RADIUS, VOTING_ANGLES,
     MAX_FRAME_TIME, VERIFICATION_SPEED_FACTOR,
     AVOIDANCE_FACTOR, AVOID_DRONE_RADIUS, AVOID_DRONE_MAX_PUSH, AVOID_DRONE_GAIN_NAV, AVOID_DRONE_GAIN_VERIFY,
-    AVOID_BORDER_GAIN, AVOID_BORDER_MAX_PUSH, AVOID_BORDER_MARGIN_NAV, AVOID_BORDER_MARGIN_VERIFY
+    AVOID_BORDER_GAIN, AVOID_BORDER_MAX_PUSH, AVOID_BORDER_MARGIN_NAV, AVOID_BORDER_MARGIN_VERIFY,
+    NAV_STD_SPEED_DIVISOR, NAV_STD_SPEED_MIN, NAV_STD_SPEED_MAX, NAV_AGGRESSIVE_SPEED_SCALE,
+    NAV_GLOBAL_STEP_MULTIPLIER, RETURN_HOME_DIST_THRESHOLD, RETURN_HOME_SPEED_DIVISOR,
+    RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX, RETURN_HOME_STEP_MULTIPLIER
 )
 from utils import (
     generate_drone_positions, generate_lawnmower_points,
@@ -417,10 +420,10 @@ class SimulationManager:
                 target_pos = np.array([self.home_targets[i][0], self.home_targets[i][1], FLY_HEIGHT])
                 diff = target_pos - current_pos
                 dist = np.linalg.norm(diff)
-                if dist > 0.05:
+                if dist > RETURN_HOME_DIST_THRESHOLD:
                     direction = diff / (dist + 1e-6)
-                    speed_scale = np.clip(dist / 3.0, 0.3, 1.0)
-                    move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * 6)
+                    speed_scale = np.clip(dist / RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX)
+                    move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * RETURN_HOME_STEP_MULTIPLIER)
                     next_pos = current_pos + direction * move_dist
                 else:
                     next_pos = target_pos
@@ -580,93 +583,13 @@ class SimulationManager:
             direction = diff / (dist + 1e-6)
             
             if controller.flight_mode == "standard":
-                speed_scale = np.clip(dist / 1.5, 0.8, 2.5)
+                speed_scale = np.clip(dist / NAV_STD_SPEED_DIVISOR, NAV_STD_SPEED_MIN, NAV_STD_SPEED_MAX)
             elif controller.flight_mode == "aggressive":
-                speed_scale = 2.5
-            elif controller.flight_mode == "path_follow":
-                speed_scale = 2.5
-                # Vector Field / Path Following Logic
-                # Get start point of segment
-                if self.path_progress[i] == 0:
-                     # Start of section path (or from home)
-                     start_pos = self.last_positions[i] # Approximate
-                else:
-                     start_pos = self.current_targets[i][self.path_progress[i]-1]
-                
-                segment_vec = np.array(target_pos) - np.array(start_pos)
-                seg_len = np.linalg.norm(segment_vec)
-                
-                if seg_len > 0.1:
-                    seg_dir = segment_vec / seg_len
-                    # Project current pos onto line
-                    to_drone = current_pos - np.array(start_pos)
-                    proj_len = np.dot(to_drone, seg_dir)
-                    closest_point = np.array(start_pos) + np.clip(proj_len, 0, seg_len) * seg_dir
-                    
-                    # Correction vector (pull to line)
-                    correction = closest_point - current_pos
-                    
-                    # Desired velocity: Parallel to path + Correction
-                    # We want to move along seg_dir, but pull towards line
-                    desired_dir = seg_dir + correction * 2.0 # Gain on correction
-                    norm = np.linalg.norm(desired_dir)
-                    if norm > 0:
-                        direction = desired_dir / norm
-            
-            elif controller.flight_mode == "smooth_follow":
-                speed_scale = 2.5
-                # Lookahead / Corner Cutting Logic
-                LOOKAHEAD_DIST = 0.6
-                
-                # Identify current segment
-                if self.path_progress[i] == 0:
-                     start_pos = self.last_positions[i]
-                else:
-                     start_pos = self.current_targets[i][self.path_progress[i]-1]
-                
-                segment_vec = np.array(target_pos) - np.array(start_pos)
-                seg_len = np.linalg.norm(segment_vec)
-                
-                if seg_len > 0.01:
-                    seg_dir = segment_vec / seg_len
-                    to_drone = current_pos - np.array(start_pos)
-                    proj_len = np.dot(to_drone, seg_dir)
-                    
-                    # Target point is proj_len + LOOKAHEAD
-                    target_dist_on_path = proj_len + LOOKAHEAD_DIST
-                    
-                    if target_dist_on_path > seg_len:
-                        # We are looking past the current waypoint -> Cut corner to next segment
-                        excess = target_dist_on_path - seg_len
-                        
-                        # Check if there is a next waypoint
-                        if self.path_progress[i] + 1 < len(self.current_targets[i]):
-                            next_wp = self.current_targets[i][self.path_progress[i]+1]
-                            next_seg_vec = np.array(next_wp) - np.array(target_pos)
-                            next_seg_len = np.linalg.norm(next_seg_vec)
-                            if next_seg_len > 0.01:
-                                next_seg_dir = next_seg_vec / next_seg_len
-                                # Point is 'excess' meters into the next segment
-                                lookahead_point = np.array(target_pos) + np.clip(excess, 0, next_seg_len) * next_seg_dir
-                            else:
-                                lookahead_point = np.array(target_pos)
-                        else:
-                            # No next waypoint, just aim at target
-                            lookahead_point = np.array(target_pos)
-                    else:
-                        # Still on current segment
-                        lookahead_point = np.array(start_pos) + max(0, target_dist_on_path) * seg_dir
-                    
-                    # Steer towards lookahead point
-                    diff_la = lookahead_point - current_pos
-                    dist_la = np.linalg.norm(diff_la)
-                    if dist_la > 0.1:
-                        direction = diff_la / dist_la
-            
+                speed_scale = NAV_AGGRESSIVE_SPEED_SCALE
             else:
                 speed_scale = 1.0 # Fallback
 
-            move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * 2)
+            move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * NAV_GLOBAL_STEP_MULTIPLIER)
             next_pos = current_pos + direction * move_dist
 
             # Navigation/Avoidance Forces

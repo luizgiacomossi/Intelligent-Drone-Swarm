@@ -23,7 +23,7 @@ def toggle_ramp_down(state):
     print(f"Flight Mode: {flight_mode}")
 
 show_full_paths = True
-flight_mode = FLIGHT_MODE # Options: "standard", "aggressive", "path_follow", "smooth_follow"
+flight_mode = FLIGHT_MODE # Options: "standard", "aggressive"
 
 def set_flight_mode(mode):
     global flight_mode

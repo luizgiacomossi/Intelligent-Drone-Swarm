@@ -23,7 +23,8 @@ class MarketSystem:
                 "owner": None,
                 "value": base_value,
                 "available": True,
-                "searched": False
+                "searched": False,
+                "reallocated": False
             }
             for s in self.area.sections
         ]
@@ -148,6 +149,8 @@ class MarketSystem:
             latency = current_time - self.released_sections[section_id]
             self.reallocations.append(latency)
             del self.released_sections[section_id] # Claimed, remove from released pending
+            sec["reallocated"] = True
+
 
 
         # Reflect in SearchArea
@@ -176,6 +179,10 @@ class MarketSystem:
         sec["searched"] = True
         sec["available"] = False
         sec["owner"] = None
+        
+        if sec.get("reallocated", False):
+            self.successful_recoveries += 1
+
 
         # Update SearchArea to reflect it's searched
         for s in self.area.sections:
@@ -196,10 +203,11 @@ class MarketSystem:
         become available again on the market.
         """
         for sec in self.sections:
-            if sec["owner"] == drone_id and not sec["searched"]:
                 sec["owner"] = None
                 sec["available"] = True
+                sec["reallocated"] = False # Reset status until bought again
                 self.released_sections[sec["id"]] = current_time
+
                 # Reflect in SearchArea
                 for s in self.area.sections:
                     if s.id == sec["id"]:

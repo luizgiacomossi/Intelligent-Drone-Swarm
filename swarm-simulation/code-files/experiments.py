@@ -10,7 +10,7 @@ import os
 # Ensure we can import local modules
 sys.path.append(os.getcwd())
 
-def run_experiment(num_agents, num_faults=0, max_steps=10000000, headless=True):
+def run_experiment(num_agents, num_faults=0, max_steps=100000, headless=True):
     """
     Runs a single simulation experiment.
     """
@@ -35,9 +35,9 @@ def run_experiment(num_agents, num_faults=0, max_steps=10000000, headless=True):
     
     fault_schedule = []
     if num_faults > 0 and num_agents >= num_faults:
-         # Fault agents 0 to N-1 at step 500
+         # Fault agents 0 to N-1 at step 100 (earlier to ensure effect before success)
          for k in range(num_faults):
-             fault_schedule.append((500 + k*100, k, 1)) # Step, AgentID, HealthCode(1=BAD_BATTERY usually)
+             fault_schedule.append((100 + k*50, k, 1)) # Step, AgentID, HealthCode(1=BAD_BATTERY usually)
     
     step_count = 0
     while step_count < max_steps:

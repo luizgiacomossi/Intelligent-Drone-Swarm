@@ -26,6 +26,8 @@ from utils import (
     generate_drone_positions, generate_lawnmower_points,
     rebuild_tasks_from_market
 )
+from measurements import MeasurementManager
+from visualization import VisualizationManager
 
 class SimulationManager:
     def __init__(self, num_agents=4, grid_size=4, headless=False):
@@ -35,22 +37,13 @@ class SimulationManager:
         self.headless = headless
         
         # Metrics
-        self.metrics = {
-            "start_time": 0.0,
-            "end_time": None,
-            "success": False,
-            "total_distance": 0.0,
-            "reallocations": [], # list of (time, section_id)
-            "sections_searched_per_drone": [0] * num_agents,
-            "section_costs": [], # list of costs paid
-            "sections_searched_per_drone": [0] * num_agents,
-            "section_costs": [], # list of costs paid
-            "failure_reason": "Timeout", # Default reason if mission ends without success
-            "crashed_count": 0,
-            "failed_count": 0
-        }
         
-        self.start_time = time.time()
+        # Managers
+        self.measurements = MeasurementManager(num_agents)
+
+
+        
+        self.measurements.start_mission()
         print("Initializing environment...")
         self.initial_xyz_agent, self.formation_radius = generate_drone_positions(num_agents, HOME_POSITION)
 
@@ -69,6 +62,9 @@ class SimulationManager:
             search_area_offset=(offset_x, offset_y),
             helipad_radius=self.formation_radius 
         )
+
+        self.visualizer = VisualizationManager(num_agents, self.env.CLIENT, headless=headless)
+
 
         self.charged_complete = [False] * num_agents
         self.area = SearchArea(grid_size=(grid_size, grid_size), section_size=1.5, home=self.search_offset)
@@ -118,26 +114,12 @@ class SimulationManager:
         self.crash_timer = [0.0] * num_agents
         self.crashed = [False] * num_agents
         self.crash_timer = [0.0] * num_agents
-        self.debug_lines = [None] * num_agents # To store debug line IDs
-        self.section_path_lines = [[] for _ in range(num_agents)] # To store full path line IDs per agent
+
         
         # Generates distinct colors for each drone (Golden Ratio HSV)
-        self.drone_colors = []
-        import colorsys
-        for i in range(num_agents):
-            hue = (i * 0.618033988749895) % 1.0 # Golden ratio to spread colors
-            sat = 0.8 + (i % 2) * 0.1 # Vary saturation slightly
-            val = 0.9
-            r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
-            color = [r, g, b]
-            self.drone_colors.append(color)
-            
-            # Apply color to the drone model (only if not headless to avoid errors)
-            if not self.headless and hasattr(self.env, 'DRONE_IDS'):
-                try:
-                    p.changeVisualShape(self.env.DRONE_IDS[i], -1, rgbaColor=color + [1], physicsClientId=self.env.CLIENT)
-                except Exception:
-                    pass
+        # Drone colors managed by VisualizationManager
+        self.visualizer.apply_drone_colors(self.env.DRONE_IDS if not self.headless else [])
+
 
         self.retasker = RetaskingSystem(self.home_targets)
         self.health_status = [0] * num_agents
@@ -154,61 +136,22 @@ class SimulationManager:
         
     def set_camera_target(self, drone_id):
         self.camera_target_id = drone_id
+
+    @property
+    def metrics(self):
+        """Backward compatibility for external scripts accessing metrics directly."""
+        return self.measurements.metrics
         
-    def clear_debug_lines(self):
-        for i, line_id in enumerate(self.debug_lines):
-            if line_id is not None:
-                try:
-                    p.removeUserDebugItem(line_id, physicsClientId=self.env.CLIENT)
-                except Exception:
-                    pass
-                self.debug_lines[i] = None
 
-    def clear_full_path(self, drone_id):
-        for line_id in self.section_path_lines[drone_id]:
-            try:
-                p.removeUserDebugItem(line_id, physicsClientId=self.env.CLIENT)
-            except Exception:
-                pass
-        self.section_path_lines[drone_id] = []
-
-    def draw_full_path(self, drone_id, points):
-        if self.headless or not controller.show_full_paths:
-            return
-        
-        # Clear old path first
-        self.clear_full_path(drone_id)
-        
-        if points is None or len(points) < 2:
-            return
-
-        # Draw lines connecting points
-        color = self.drone_colors[drone_id]
-        for k in range(len(points) - 1):
-            p1 = points[k]
-            p2 = points[k+1]
-            try:
-                line_id = p.addUserDebugLine(p1, p2, lineColorRGB=color, lineWidth=1.5, lifeTime=0, physicsClientId=self.env.CLIENT)
-                self.section_path_lines[drone_id].append(line_id)
-            except Exception:
-                pass
-
-    def _update_error_metrics(self):
-        self.metrics["crashed_count"] = sum(self.crashed)
-        # Failed = Not crashed AND (Bad Health OR Late Battery)
-        # We assume health_status!=0 implies failure/fault.
-        failed = 0
-        for i in range(self.num_agents):
-            if not self.crashed[i]:
-                if self.health_status[i] != 0 or i in self.battery_late:
-                    failed += 1
-        self.metrics["failed_count"] = failed
 
     def step(self):
         # Return True if simulation should continue, False if done/closed
         if self.mission_complete:
-            self._update_error_metrics()
+            self.measurements.update_error_metrics(self.crashed, self.health_status, self.battery_late)
             return False
+            
+        if not hasattr(self, 'env') or self.env.CLIENT < 0:
+             return False
             
         # Use simulation time instead of wall clock
         # PYB_FREQ is usually 240, but we step at ctrl_freq (60).
@@ -225,10 +168,10 @@ class SimulationManager:
             fault_name = get_health_name(fault_code)
             print(f"[GUI Inject] agent {fault_drone} fault set to {fault_name}")
 
-        if all(self.crashed):
+        if all(self.crashed) and not self.is_descending and not self.measurements.metrics.get("success", False):
              print("All drones crashed! Ending simulation.")
-             self.metrics["failure_reason"] = "All Drones Crashed"
-             self._update_error_metrics()
+             self.measurements.end_mission(success=False, reason="All Drones Crashed")
+             self.measurements.update_error_metrics(self.crashed, self.health_status, self.battery_late)
              return False
 
         # Additional Check: If everyone is either crashed or sitting at home (battery dead/fault), we can't search.
@@ -240,8 +183,8 @@ class SimulationManager:
         
         if all(drones_incapacitated) and not self.mission_complete:
              print("All drones are crashed or grounded at home. Mission failed (Swarm Depleted).")
-             self.metrics["failure_reason"] = "Swarm Depleted"
-             self._update_error_metrics()
+             self.measurements.end_mission(success=False, reason="Swarm Depleted")
+             self.measurements.update_error_metrics(self.crashed, self.health_status, self.battery_late)
              return False
 
         if controller.mission_aborted:
@@ -283,7 +226,7 @@ class SimulationManager:
             # Update metrics (Total Distance)
             curr_pos = np.array(drone.position)
             dist = np.linalg.norm(curr_pos - self.last_positions[i])
-            self.metrics["total_distance"] += dist
+            self.measurements.update_distance(dist)
             self.last_positions[i] = curr_pos
             current_pos = np.array(state[0:3])
 
@@ -304,7 +247,7 @@ class SimulationManager:
                     self.subject_found = True
                     self.detecting_drone_id = i
                     drone.subject_found = 1
-                    controller.middle_text = f"Drone {i} detected possible subject at {np.round(self.subject_pos[:2], 2)}!"
+                    controller.middle_text = f"Drone {i} detected possible subject at {np.round(self.subject_pos[:2], 2)} in section {self.current_section[i]}!"
                     print(controller.middle_text)
                     self.detecting_drone_id = i
 
@@ -497,7 +440,25 @@ class SimulationManager:
                 print(f"drone {i} → new section {cell_id}")
 
             if self.voting_active:
-                for j in self.verification_targets.keys():
+                # Remove crashed verifiers
+                crashed_verifiers = [j for j in self.verification_targets.keys() if self.crashed[j]]
+                for cv in crashed_verifiers:
+                     print(f"[Subject] Verifier {cv} crashed. Removing from voting pool.")
+                     del self.verification_targets[cv]
+                     
+                if not self.verification_targets:
+                     print("[Subject] All verifiers crashed! Re-assigning or failing?")
+                     # For simplicity, if all crashed, we abort voting and reset?
+                     # Or just wait? If empty, len(votes) >= 0 is true immediately.
+                     # But we need at least one vote?
+                     # Let's abort voting.
+                     self.voting_active = False
+                     self.votes = []
+                     self.subject_found = False # Reset so we can try again
+                     controller.voting_text = "Voting aborted (all verifiers crashed)."
+                     print(controller.voting_text)
+     
+                for j in list(self.verification_targets.keys()):
                     target = self.verification_targets[j]
                     diff_xy = target[:2] - self.swarm[j].position[:2]
                     dist = np.linalg.norm(diff_xy)
@@ -546,14 +507,18 @@ class SimulationManager:
                     print("[Subject] Voting complete!")
                     controller.middle_text = "✅ Subject confirmed! All drones returning home."
                     controller.voting_text += "✅ Subject confirmed — returning home.\n"
-                    total_time = round(time.time() - self.start_time, 1)
+                    total_time = round(time.time() - self.measurements.metrics["start_time"], 1)
                     controller.middle_text += f"\nSubject confirmed at {np.round(self.subject_pos[:2], 2)} | Time: {total_time}s"
-                    self.metrics["success"] = True
-                    self.metrics["success"] = True
-                    self.metrics["end_time"] = t
+                    self.measurements.end_mission(success=True)
                     # Merge market metrics
-                    self.metrics.update(self.market.get_metrics())
-                    print(f"Metrics: Success! Time={self.metrics['end_time'] - self.metrics['start_time']:.2f}s")
+                    self.measurements.merge_market_metrics(self.market.get_metrics())
+                    summary = self.measurements.get_metrics_summary()
+                    print(f"Metrics: Success! Time={summary['duration']:.2f}s")
+                    
+                    if self.headless:
+                        self.mission_complete = True
+                        return True
+                        
                     self.returning_home = True
                     self.voting_active = False
                     min_dist = float("inf")
@@ -579,27 +544,19 @@ class SimulationManager:
             target_pos = self.current_targets[i][self.path_progress[i]]
             
             # Draw debug line to waypoint if GUI is active
-            # Draw debug line to waypoint if GUI is active (throttled to 6Hz for performance)
+            # Draw debug line to waypoint if GUI is active (throttled)
             if not self.headless:
                 # Debug Waypoint Line
-                if controller.show_debug_lines and self.env.step_counter % 10 == 0:
-                    line_id = self.debug_lines[i]
-                    color = self.drone_colors[i]
-                    if line_id is None:
-                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=color, lifeTime=0, physicsClientId=self.env.CLIENT)
-                    else:
-                        self.debug_lines[i] = p.addUserDebugLine(current_pos, target_pos, lineColorRGB=color, lifeTime=0, replaceItemUniqueId=line_id, physicsClientId=self.env.CLIENT)
-                elif not controller.show_debug_lines and self.debug_lines[i] is not None:
-                     # If toggled off but lines exist, remove them safely
-                     self.clear_debug_lines()
-                
-                # Full Section Path Visualization (Cyan Lines)
-                # If enabled and not drawn yet, draw it.
-                if controller.show_full_paths and not self.section_path_lines[i]:
-                    self.draw_full_path(i, self.current_targets[i])
-                # If disabled but drawn, clear it.
-                elif not controller.show_full_paths and self.section_path_lines[i]:
-                    self.clear_full_path(i)
+                if self.env.step_counter % 10 == 0:
+                     self.visualizer.update_waypoint_line(i, current_pos, target_pos, show_lines=controller.show_debug_lines)
+                elif not controller.show_debug_lines:
+                     self.visualizer.clear_debug_lines() # This might be aggressive to call in loop? No, handled in manager.
+
+                # Full Section Path Visualization
+                if controller.show_full_paths and not self.visualizer.section_path_lines[i]:
+                    self.visualizer.draw_full_path(i, self.current_targets[i], enabled=True)
+                elif not controller.show_full_paths and self.visualizer.section_path_lines[i]:
+                    self.visualizer.clear_full_path(i)
 
             diff = np.array(target_pos) - current_pos
             dist = np.linalg.norm(diff)
@@ -722,7 +679,7 @@ class SimulationManager:
                             print(f"drone {i} finished section {self.current_section[i]}")
                             self.market.reward_and_remove_section(i, self.current_section[i])
                             # Section completed metric
-                            self.metrics["sections_searched_per_drone"][i] += 1
+                            self.measurements.increment_sections_searched(i)
                             controller.market_text = self.market.get_market_status()
                             drone_positions = [d.position for d in self.swarm]
                             self.market.dynamic_update(drone_positions, current_time=t)
@@ -735,13 +692,13 @@ class SimulationManager:
                             self.last_reach_time[i] = t
                             
                             # Clear path visualization for the finished section
-                            self.clear_full_path(i)
+                            self.visualizer.clear_full_path(i)
                             
                             try:
                                 cell_id, path = next(self.drone_tasks[i])
                                 self.current_section[i] = cell_id
                                 self.current_targets[i] = path
-                                self.draw_full_path(i, path)
+                                self.visualizer.draw_full_path(i, path, enabled=controller.show_full_paths)
                             except StopIteration:
                                 hover_target = np.array([current_pos[0], current_pos[1], FLY_HEIGHT])
                                 rpm = drone.step_toward(hover_target)
@@ -855,11 +812,11 @@ class SimulationManager:
                  subject_section = sec
                  break
 
-        total_time = round(time.time() - self.start_time, 1)
+        summary = self.measurements.get_metrics_summary()
         summary_msg = f"""
         Position: {np.round(self.subject_pos[:2], 2)}
         Section: {subject_section.id if subject_section else 'Unknown'}
-        Time to find: {total_time} seconds
+        Time to find: {summary['duration']:.2f} seconds
         """
         if not self.headless:
             try:
@@ -874,7 +831,7 @@ class SimulationManager:
             except Exception as e:
                  print(f"[GUI] Could not open summary window: {e}")
         else:
-            print(f"[Summary] Mission Complete. Time to find: {total_time}s")
+            print(f"[Summary] Mission Complete. Time to find: {summary['duration']:.2f}s")
 
     def close(self):
         if hasattr(self, 'env'):
@@ -882,6 +839,7 @@ class SimulationManager:
                  p.disconnect(physicsClientId=self.env.CLIENT)
              except:
                  pass
+             self.env.CLIENT = -1
 
 def main():
     pass # No OP now

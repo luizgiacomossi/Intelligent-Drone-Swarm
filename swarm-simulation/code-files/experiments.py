@@ -26,7 +26,7 @@ def run_experiment(num_agents, num_faults=0, max_steps=10000000, headless=True):
     controller.charged_drones = set()
     
     # Init Simulation
-    sim = main.SimulationManager(num_agents=num_agents, grid_size=8, headless=headless)
+    sim = main.SimulationManager(num_agents=num_agents, grid_size=4, headless=headless)
     
     # Inject faults if requested (simple modification to main/controller for pre-planned faults)
     # For now, we will simulate faults by manually injecting them at step X.

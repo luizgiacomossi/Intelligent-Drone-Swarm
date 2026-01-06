@@ -68,3 +68,19 @@ The software is organized into modular components managed by a central `Simulati
 For detailed theoretical/mathematical explanations, please refer to the `documentation/` folder:
 *   [Methodology (Unified)](documentation/methodology.md)
 *   [Experimental Results (Unified)](documentation/experiments.md)
+
+# Contributors
+
+## 2025-09-01 - 2026-01-18
+**Project owner:** <a href="https://www.mdu.se/staff?id=lgr03">Luiz Giacomossi</a> (<a href="mailto:luiz.giacomossi@mdu.se">email</a>)
+
+### Course code: FLA402
+- Course responsible: Luciana Provenzano
+- Teachers: Julieth Castellanos and Luiz Giacomossi
+
+### Project Group Members
+- Andrea Haglund, Chief Engineer
+- Claire Namatovu, Requirements Manager
+- Emily Zainali, Validation & Verification Manager
+- Esaias Målqvist, Safety Manager
+- Yonatan Michael Beyene, Quality & Configuration Manager

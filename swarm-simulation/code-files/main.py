@@ -128,6 +128,9 @@ class SimulationManager:
         # Camera tracking
         self.camera_target_id = None
 
+        #  track the start of the current segment
+        self.last_waypoint_pos = [None] * num_agents
+
     # =========================================================================
     # PUBLIC INTERFACE
     # =========================================================================
@@ -405,6 +408,7 @@ class SimulationManager:
         self.charged_complete[i] = True
         self.battery_return_start.pop(i, None)
         self.return_reason[i] = ""
+        self.return_active[i] = False
 
         if i in self.battery_late:
             print(f"[Penalty] Drone {i} took too long to charge. Must buy section (cost 2 points).")
@@ -525,7 +529,11 @@ class SimulationManager:
         # Select helpers
         dists = [
             (j, np.linalg.norm(np.array(self.swarm[j].position[:2]) - np.array(self.subject_pos[:2])))
-            for j in range(self.num_agents) if j != detecting_id
+            for j in range(self.num_agents) 
+            if j != detecting_id 
+            and not self.crashed[j] 
+            and self.health_status[j] == 0
+            and not self.return_active[j]
         ]
         dists.sort(key=lambda x: x[1])
         self.helpers = [idx for idx, _ in dists[:3]]
@@ -691,7 +699,7 @@ class SimulationManager:
         elif controller.flight_mode == "aggressive":
              speed_scale = NAV_AGGRESSIVE_SPEED_SCALE
 
-        move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * NAV_GLOBAL_STEP_MULTIPLIER)
+        move_dist = min(dist * 2, MAX_SPEED * speed_scale / self.ctrl_freq * NAV_GLOBAL_STEP_MULTIPLIER)
         direction = diff / (dist + 1e-6)
         next_pos = current_pos + direction * move_dist
 
@@ -722,6 +730,7 @@ class SimulationManager:
                     self._complete_section(i, t)
                     
         return action
+
 
     def _complete_section(self, i, t):
         if self.current_section[i] is not None:
@@ -801,6 +810,7 @@ class SimulationManager:
         
         # 4. Camera Tracking
         if self.camera_target_id is not None:
+             # Case 1: Track specific agent
              if 0 <= self.camera_target_id < self.num_agents:
                  try:
                      pos, _ = p.getBasePositionAndOrientation(self.env.DRONE_IDS[self.camera_target_id], physicsClientId=self.env.CLIENT)
@@ -809,6 +819,41 @@ class SimulationManager:
                          cameraYaw=-90,
                          cameraPitch=-40,
                          cameraTargetPosition=[pos[0], pos[1], pos[2]]
+                     )
+                 except Exception:
+                     pass
+
+             # Case 2: Track Full Swarm (-2)
+             elif self.camera_target_id == -2:
+                 try:
+                     # 1. Collect Valid Positions
+                     valid_positions = []
+                     for i in range(self.num_agents):
+                         if not self.crashed[i]:
+                             pos, _ = p.getBasePositionAndOrientation(self.env.DRONE_IDS[i], physicsClientId=self.env.CLIENT)
+                             valid_positions.append(np.array(pos[:3]))
+                     
+                     if not valid_positions: 
+                         return # nothing to see
+
+                     # 2. Calculate Centroid
+                     positions_arr = np.array(valid_positions)
+                     centroid = np.mean(positions_arr, axis=0)
+                     
+                     # 3. Calculate Spread (Max distance from centroid)
+                     dists = np.linalg.norm(positions_arr - centroid, axis=1)
+                     max_dist = np.max(dists) if len(dists) > 0 else 1.0
+
+                     # 4. Set Camera
+                     # Dynamic zoom: Base distance + scale factor * spread
+                     # We limit min distance for closeups and allow it to grow
+                     zoom_distance = 6.0 + 1.2 * max_dist 
+                     
+                     p.resetDebugVisualizerCamera(
+                         cameraDistance=zoom_distance,
+                         cameraYaw=-90,   # Top-down view or slight angle
+                         cameraPitch=-89, # Nearly top-down for swarm view
+                         cameraTargetPosition=[centroid[0], centroid[1], 0] # Ground focus often better than tracking altitude mean
                      )
                  except Exception:
                      pass

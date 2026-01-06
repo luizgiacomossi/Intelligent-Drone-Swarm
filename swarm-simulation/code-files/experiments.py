@@ -121,7 +121,7 @@ def main_experiment():
     # Scenario A: Scalability (2 to 8 agents)
     # Using small iteration count for testing (Iter=1). 
     # let's do 3 iterations for demonstration.
-    ITERATIONS = 30
+    ITERATIONS = 3
     
     print("Starting Scalability Batch...")
     for n in [2, 4, 8]:

@@ -147,6 +147,15 @@ class DroneControlUI(QWidget):
         mode_label = QLabel("Mode:")
         self.mode_selector = QComboBox()
         self.mode_selector.addItems(["Standard (Ramp)", "Aggressive (Max)", "Path Follow", "Smooth Follow"])
+        
+        # Sync with default config
+        try:
+             default_modes = ["standard", "aggressive", "path_follow", "smooth_follow"]
+             if controller.flight_mode in default_modes:
+                 self.mode_selector.setCurrentIndex(default_modes.index(controller.flight_mode))
+        except:
+             pass
+
         self.mode_selector.currentIndexChanged.connect(self.change_flight_mode)
         mode_layout.addWidget(mode_label)
         mode_layout.addWidget(self.mode_selector)

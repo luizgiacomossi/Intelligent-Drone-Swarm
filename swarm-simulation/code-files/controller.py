@@ -2,6 +2,7 @@
 import main
 import pybullet as p
 import time
+from config import FLIGHT_MODE
 
 # Control flags
 simulation_running = False
@@ -22,7 +23,7 @@ def toggle_ramp_down(state):
     print(f"Flight Mode: {flight_mode}")
 
 show_full_paths = True
-flight_mode = "standard" # Options: "standard", "aggressive", "path_follow", "smooth_follow"
+flight_mode = FLIGHT_MODE # Options: "standard", "aggressive", "path_follow", "smooth_follow"
 
 def set_flight_mode(mode):
     global flight_mode

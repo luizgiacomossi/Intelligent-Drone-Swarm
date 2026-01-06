@@ -1,5 +1,6 @@
 # market.py
 import numpy as np
+from config import STARTING_POINTS, SECTION_BASE_VALUE, FORCE_BUY_COST, DYNAMIC_PRICE_FACTOR
 
 class MarketSystem:
     """
@@ -7,7 +8,7 @@ class MarketSystem:
     equal to the section's worth once the section has been searched.
     """
 
-    def __init__(self, num_drones, area, starting_points=3.0, base_value=2.0):
+    def __init__(self, num_drones, area, starting_points=STARTING_POINTS, base_value=SECTION_BASE_VALUE):
         self.num_drones = num_drones
         self.area = area
         self.base_value = base_value
@@ -38,7 +39,7 @@ class MarketSystem:
     def compute_dynamic_price(self, drone_pos, section_pos):
         """Price increases with distance (only in dynamic phase)."""
         dist = np.linalg.norm(drone_pos[:2] - section_pos[:2])
-        return round(self.base_value * (1 + dist / 10.0), 2)
+        return round(self.base_value * (1 + dist / DYNAMIC_PRICE_FACTOR), 2)
 
     def force_buy_section(self, drone_id, cost=2):
         """

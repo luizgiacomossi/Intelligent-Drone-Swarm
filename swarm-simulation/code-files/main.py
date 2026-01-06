@@ -20,7 +20,12 @@ from PyQt5.QtWidgets import QMessageBox, QApplication
 from config import (
     HOME_POSITION, FLY_HEIGHT, SECTION_SWEEP_STEPS, SEARCH_OFFSET,
     WAYPOINT_TOLERANCE, HOVER_TIME, MAX_SPEED, BROADCAST_PERIOD,
-    RETURN_TIMEOUT
+    RETURN_TIMEOUT, CTRL_FREQ, SECTION_SIZE, 
+    CRASH_HEIGHT_THRESHOLD, CRASH_TIMEOUT, BATTERY_CHANGE_DURATION,
+    SUBJECT_DETECTION_DIST, VERIFICATION_DIST, VOTING_RADIUS, VOTING_ANGLES,
+    MAX_FRAME_TIME,
+    AVOID_DRONE_RADIUS, AVOID_DRONE_MAX_PUSH, AVOID_DRONE_GAIN_NAV, AVOID_DRONE_GAIN_VERIFY,
+    AVOID_BORDER_GAIN, AVOID_BORDER_MAX_PUSH, AVOID_BORDER_MARGIN_NAV, AVOID_BORDER_MARGIN_VERIFY
 )
 from utils import (
     generate_drone_positions, generate_lawnmower_points,
@@ -33,7 +38,7 @@ class SimulationManager:
     def __init__(self, num_agents=4, grid_size=4, headless=False):
         self.num_agents = num_agents
         self.grid_size = grid_size
-        self.ctrl_freq = 60
+        self.ctrl_freq = CTRL_FREQ
         self.headless = headless
         
         # Metrics
@@ -57,7 +62,7 @@ class SimulationManager:
             gui=not headless,
             user_debug_gui=False,
             grid_size=(grid_size, grid_size),
-            section_size=1.5,
+            section_size=SECTION_SIZE,
             home_position=(0, 0),
             search_area_offset=(offset_x, offset_y),
             helipad_radius=self.formation_radius 
@@ -67,7 +72,7 @@ class SimulationManager:
 
 
         self.charged_complete = [False] * num_agents
-        self.area = SearchArea(grid_size=(grid_size, grid_size), section_size=1.5, home=self.search_offset)
+        self.area = SearchArea(grid_size=(grid_size, grid_size), section_size=SECTION_SIZE, home=self.search_offset)
 
         self.subject_mgr = SubjectManager(self.env, self.area, urdf_path=r"/Users/lgr03/Documents/MDU_PhD/Papers/Intelligent Replanning/Intelligent-Drone-Swarm/swarm-simulation/objects/human_urdf/unnamed/urdf/unnamed.urdf")
         self.subject_pos = self.subject_mgr.spawn_random_subject()
@@ -209,7 +214,7 @@ class SimulationManager:
 
         for j in range(self.num_agents):
             if self.return_reason[j] == "battery" and not self.charged_complete[j]:
-                if j in self.battery_return_start and (t - self.battery_return_start[j]) > 60.0:
+                if j in self.battery_return_start and (t - self.battery_return_start[j]) > BATTERY_CHANGE_DURATION:
                     if j not in self.battery_late:
                         print(f"[Battery Timeout] Drone {j} took too long to change battery. Releasing sections.")
                         self.battery_late.add(j)
@@ -243,7 +248,7 @@ class SimulationManager:
                     self.area.sections[self.subject_section_id].assigned_drone == i
                 )
 
-                if (is_subject_section_assigned_to_me and dist_to_subject < 0.4):
+                if (is_subject_section_assigned_to_me and dist_to_subject < SUBJECT_DETECTION_DIST):
                     self.subject_found = True
                     self.detecting_drone_id = i
                     drone.subject_found = 1
@@ -266,10 +271,10 @@ class SimulationManager:
                     )
 
                     self.verification_targets = {}
-                    angles = [0, 120, 240]
+                    angles = VOTING_ANGLES
                     for k, drone_id in enumerate(self.helpers):
-                        offx = np.cos(np.radians(angles[k])) * 0.5
-                        offy = np.sin(np.radians(angles[k])) * 0.5
+                        offx = np.cos(np.radians(angles[k])) * VOTING_RADIUS
+                        offy = np.sin(np.radians(angles[k])) * VOTING_RADIUS
                         self.verification_targets[drone_id] = np.array([self.subject_pos[0] + offx,
                                                                     self.subject_pos[1] + offy,
                                                                     FLY_HEIGHT])
@@ -382,10 +387,10 @@ class SimulationManager:
                         continue
 
             if not self.crashed[i]:
-                if current_pos[2] <= 0.1:
+                if current_pos[2] <= CRASH_HEIGHT_THRESHOLD:
                     if self.crash_timer[i] == 0.0:
                         self.crash_timer[i] = t
-                    elif t - self.crash_timer[i] > 6.0:
+                    elif t - self.crash_timer[i] > CRASH_TIMEOUT:
                         self.crashed[i] = True
                         print(f"drone {i} has crashed! Altitude={current_pos[2]:.2f}")
                         p.addUserDebugText("CRASHED", [current_pos[0], current_pos[1], 0.1], textColorRGB=[1, 0, 0], textSize=2, lifeTime=0, physicsClientId=self.env.CLIENT)
@@ -462,7 +467,7 @@ class SimulationManager:
                     target = self.verification_targets[j]
                     diff_xy = target[:2] - self.swarm[j].position[:2]
                     dist = np.linalg.norm(diff_xy)
-                    if dist > 0.25:
+                    if dist > VERIFICATION_DIST:
                         direction = diff_xy / (dist + 1e-6)
                         move_dist = min(dist, MAX_SPEED / self.ctrl_freq * 1.6)
                         next_xy = self.swarm[j].position[:2] + direction * move_dist
@@ -488,8 +493,8 @@ class SimulationManager:
                             direction = diff / (dist + 1e-6)
                             move_dist = min(dist, MAX_SPEED / self.ctrl_freq)
                             next_pos = self.swarm[k].position + direction * move_dist
-                            push_drones = avoidance_from_drones(self.swarm[k].position, all_positions, k, radius=0.5, gain=0.3, max_push=0.4)
-                            push_border = avoidance_from_borders(self.swarm[k].position, (self.grid_size, self.grid_size), 1.5, self.search_offset, margin=0.3, gain=0.1, max_push=0)
+                            push_drones = avoidance_from_drones(self.swarm[k].position, all_positions, k, radius=AVOID_DRONE_RADIUS, gain=AVOID_DRONE_GAIN_VERIFY, max_push=AVOID_DRONE_MAX_PUSH)
+                            push_border = avoidance_from_borders(self.swarm[k].position, (self.grid_size, self.grid_size), SECTION_SIZE, self.search_offset, margin=AVOID_BORDER_MARGIN_VERIFY, gain=AVOID_BORDER_GAIN, max_push=AVOID_BORDER_MAX_PUSH)
                             next_pos += 0.5 * (push_drones + push_border)
                             next_pos[2] = FLY_HEIGHT
                             rpm = self.swarm[k].step_toward(next_pos)
@@ -656,8 +661,8 @@ class SimulationManager:
 
             # Navigation/Avoidance Forces
             # Reduced gains to prevent "repulsion" from valid waypoints
-            push_drones = avoidance_from_drones(current_pos, all_positions, i, radius=0.5, gain=0.2, max_push=0.4)
-            push_border = avoidance_from_borders(current_pos, (self.grid_size, self.grid_size), 1.5, self.search_offset, margin=0.1, gain=0.1, max_push=0)
+            push_drones = avoidance_from_drones(current_pos, all_positions, i, radius=AVOID_DRONE_RADIUS, gain=AVOID_DRONE_GAIN_NAV, max_push=AVOID_DRONE_MAX_PUSH)
+            push_border = avoidance_from_borders(current_pos, (self.grid_size, self.grid_size), SECTION_SIZE, self.search_offset, margin=AVOID_BORDER_MARGIN_NAV, gain=AVOID_BORDER_GAIN, max_push=AVOID_BORDER_MAX_PUSH)
             next_pos = next_pos + 0.5 * (push_drones + push_border)
             
             if int(t) % 60 == 0:

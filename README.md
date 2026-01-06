@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/IDS-logo-white-text.png" alt="IDS Logo" width="600">
+</p>
+
 # Intelligent Drone Swarm for Search and Rescue (SAR)
 
 This repository contains a high-fidelity simulation of a Multi-UAV system designed for resilient Search and Rescue missions. The system implements a **Decentralized Market-Based Consensus** strategy to coordinate a swarm of drones in dynamic environments, featuring fault tolerance, real-time retasking, and collaborative target verification.
@@ -71,12 +75,7 @@ For detailed theoretical/mathematical explanations, please refer to the `documen
 
 # Contributors
 
-## 2025-09-01 - 2026-01-18
 **Project owner:** <a href="https://www.mdu.se/staff?id=lgr03">Luiz Giacomossi</a> (<a href="mailto:luiz.giacomossi@mdu.se">email</a>)
-
-### Course code: FLA402
-- Course responsible: Luciana Provenzano
-- Teachers: Julieth Castellanos and Luiz Giacomossi
 
 ### Project Group Members
 - Andrea Haglund, Chief Engineer

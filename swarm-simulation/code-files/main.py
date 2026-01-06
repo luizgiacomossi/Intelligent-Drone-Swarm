@@ -23,8 +23,8 @@ from config import (
     RETURN_TIMEOUT, CTRL_FREQ, SECTION_SIZE, 
     CRASH_HEIGHT_THRESHOLD, CRASH_TIMEOUT, BATTERY_CHANGE_DURATION,
     SUBJECT_DETECTION_DIST, VERIFICATION_DIST, VOTING_RADIUS, VOTING_ANGLES,
-    MAX_FRAME_TIME,
-    AVOID_DRONE_RADIUS, AVOID_DRONE_MAX_PUSH, AVOID_DRONE_GAIN_NAV, AVOID_DRONE_GAIN_VERIFY,
+    MAX_FRAME_TIME, VERIFICATION_SPEED_FACTOR,
+    AVOIDANCE_FACTOR, AVOID_DRONE_RADIUS, AVOID_DRONE_MAX_PUSH, AVOID_DRONE_GAIN_NAV, AVOID_DRONE_GAIN_VERIFY,
     AVOID_BORDER_GAIN, AVOID_BORDER_MAX_PUSH, AVOID_BORDER_MARGIN_NAV, AVOID_BORDER_MARGIN_VERIFY
 )
 from utils import (
@@ -45,8 +45,6 @@ class SimulationManager:
         
         # Managers
         self.measurements = MeasurementManager(num_agents)
-
-
         
         self.measurements.start_mission()
         print("Initializing environment...")
@@ -278,6 +276,8 @@ class SimulationManager:
                         self.verification_targets[drone_id] = np.array([self.subject_pos[0] + offx,
                                                                     self.subject_pos[1] + offy,
                                                                     FLY_HEIGHT])
+                    
+                    self.visualizer.draw_verification_targets(self.verification_targets)
                     self.voting_active = True
                     self.votes = []
 
@@ -457,9 +457,11 @@ class SimulationManager:
                      # Or just wait? If empty, len(votes) >= 0 is true immediately.
                      # But we need at least one vote?
                      # Let's abort voting.
+                     # Let's abort voting.
                      self.voting_active = False
                      self.votes = []
                      self.subject_found = False # Reset so we can try again
+                     self.visualizer.clear_verification_targets()
                      controller.voting_text = "Voting aborted (all verifiers crashed)."
                      print(controller.voting_text)
      
@@ -469,7 +471,7 @@ class SimulationManager:
                     dist = np.linalg.norm(diff_xy)
                     if dist > VERIFICATION_DIST:
                         direction = diff_xy / (dist + 1e-6)
-                        move_dist = min(dist, MAX_SPEED / self.ctrl_freq * 1.6)
+                        move_dist = min(dist, MAX_SPEED / self.ctrl_freq * VERIFICATION_SPEED_FACTOR)
                         next_xy = self.swarm[j].position[:2] + direction * move_dist
                         next_pos = np.array([next_xy[0], next_xy[1], FLY_HEIGHT])
                         rpm = self.swarm[j].step_toward(next_pos)
@@ -495,7 +497,7 @@ class SimulationManager:
                             next_pos = self.swarm[k].position + direction * move_dist
                             push_drones = avoidance_from_drones(self.swarm[k].position, all_positions, k, radius=AVOID_DRONE_RADIUS, gain=AVOID_DRONE_GAIN_VERIFY, max_push=AVOID_DRONE_MAX_PUSH)
                             push_border = avoidance_from_borders(self.swarm[k].position, (self.grid_size, self.grid_size), SECTION_SIZE, self.search_offset, margin=AVOID_BORDER_MARGIN_VERIFY, gain=AVOID_BORDER_GAIN, max_push=AVOID_BORDER_MAX_PUSH)
-                            next_pos += 0.5 * (push_drones + push_border)
+                            next_pos += AVOIDANCE_FACTOR * (push_drones + push_border)
                             next_pos[2] = FLY_HEIGHT
                             rpm = self.swarm[k].step_toward(next_pos)
                             actions[k, :] = rpm
@@ -514,11 +516,18 @@ class SimulationManager:
                     controller.voting_text += "✅ Subject confirmed — returning home.\n"
                     total_time = round(time.time() - self.measurements.metrics["start_time"], 1)
                     controller.middle_text += f"\nSubject confirmed at {np.round(self.subject_pos[:2], 2)} | Time: {total_time}s"
+                    
+                    # Calculate map coverage
+                    total_sections = self.grid_size * self.grid_size
+                    searched_count = sum(1 for s in self.market.sections if s["searched"])
+                    coverage_pct = (searched_count / total_sections) * 100.0
+                    self.measurements.record_map_coverage(coverage_pct)
+                    
                     self.measurements.end_mission(success=True)
                     # Merge market metrics
                     self.measurements.merge_market_metrics(self.market.get_metrics())
                     summary = self.measurements.get_metrics_summary()
-                    print(f"Metrics: Success! Time={summary['duration']:.2f}s")
+                    print(f"Metrics: Success! Time={summary['duration']:.2f}s | Coverage={summary['map_coverage']:.1f}%")
                     
                     if self.headless:
                         self.mission_complete = True
@@ -526,6 +535,7 @@ class SimulationManager:
                         
                     self.returning_home = True
                     self.voting_active = False
+                    self.visualizer.clear_verification_targets()
                     min_dist = float("inf")
                     subject_section = None
                     for sec in self.area.sections:
@@ -663,7 +673,7 @@ class SimulationManager:
             # Reduced gains to prevent "repulsion" from valid waypoints
             push_drones = avoidance_from_drones(current_pos, all_positions, i, radius=AVOID_DRONE_RADIUS, gain=AVOID_DRONE_GAIN_NAV, max_push=AVOID_DRONE_MAX_PUSH)
             push_border = avoidance_from_borders(current_pos, (self.grid_size, self.grid_size), SECTION_SIZE, self.search_offset, margin=AVOID_BORDER_MARGIN_NAV, gain=AVOID_BORDER_GAIN, max_push=AVOID_BORDER_MAX_PUSH)
-            next_pos = next_pos + 0.5 * (push_drones + push_border)
+            next_pos = next_pos + AVOIDANCE_FACTOR * (push_drones + push_border)
             
             if int(t) % 60 == 0:
                 drone.controller.reset()

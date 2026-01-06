@@ -12,6 +12,7 @@ class VisualizationManager:
         self.drone_colors = []
         self.debug_lines = [None] * num_agents
         self.section_path_lines = [[] for _ in range(num_agents)]
+        self.verification_bodies = []
         
         self._generate_colors()
         
@@ -95,3 +96,41 @@ class VisualizationManager:
             except Exception:
                 pass
             self.debug_lines[drone_id] = None
+
+    def draw_verification_targets(self, targets_dict):
+        """
+        Draw small spheres at the verification target locations.
+        targets_dict: {drone_id: np.array([x, y, z])}
+        """
+        if self.headless: return
+        self.clear_verification_targets()
+
+        radius = 0.05
+        # Create a visual shape for the marker (Yellow/Orange)
+        visual_shape_id = p.createVisualShape(
+            shapeType=p.GEOM_SPHERE,
+            radius=radius,
+            rgbaColor=[1, 0.6, 0, 0.8], # Orange-ish
+            physicsClientId=self.client
+        )
+
+        for drone_id, pos in targets_dict.items():
+            try:
+                body_id = p.createMultiBody(
+                    baseVisualShapeIndex=visual_shape_id,
+                    basePosition=pos,
+                    physicsClientId=self.client
+                )
+                self.verification_bodies.append(body_id)
+            except Exception:
+                pass
+
+    def clear_verification_targets(self):
+        """Remove all verification target spheres."""
+        if self.headless: return
+        for body_id in self.verification_bodies:
+            try:
+                p.removeBody(body_id, physicsClientId=self.client)
+            except Exception:
+                pass
+        self.verification_bodies = []

@@ -1,6 +1,6 @@
 # utils.py
 import numpy as np
-from config import FLY_HEIGHT, SECTION_SWEEP_STEPS
+from config import FLY_HEIGHT, SECTION_SWEEP_STEPS, LAWNMOWER_MARGIN_FACTOR
 
 def generate_drone_positions(num_agents, home_xy):
     # Adaptive radius: increases slowly with sqrt(N)
@@ -18,7 +18,7 @@ def generate_lawnmower_points(center, section_size, steps):
     # Generate lawn-mower pattern fully inside each section.
     cx, cy = center
     half = section_size / 2
-    margin = 0.30 * section_size   # a margin of 30% so that the drones cover most of the section without hitting borders.
+    margin = LAWNMOWER_MARGIN_FACTOR * section_size   # a margin of 30% so that the drones cover most of the section without hitting borders.
     x1, x2 = cx - half + margin, cx + half - margin
     y1, y2 = cy - half + margin, cy + half - margin
     ys = np.linspace(y1, y2, steps)

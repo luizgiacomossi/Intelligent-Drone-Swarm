@@ -14,7 +14,8 @@ class MeasurementManager:
             "section_costs": [], # list of costs paid
             "failure_reason": "Timeout", # Default reason if mission ends without success
             "crashed_count": 0,
-            "failed_count": 0
+            "failed_count": 0,
+            "map_coverage": 0.0
         }
         
     def start_mission(self):
@@ -38,6 +39,9 @@ class MeasurementManager:
         
     def record_cost(self, cost):
         self.metrics["section_costs"].append(cost)
+
+    def record_map_coverage(self, percentage):
+        self.metrics["map_coverage"] = percentage
         
     def update_error_metrics(self, crashed_list, health_status, battery_late_set):
         self.metrics["crashed_count"] = sum(crashed_list)
@@ -65,5 +69,6 @@ class MeasurementManager:
             "duration": duration,
             "total_distance": self.metrics["total_distance"],
             "crashed": self.metrics["crashed_count"],
-            "failed": self.metrics["failed_count"]
+            "failed": self.metrics["failed_count"],
+            "map_coverage": self.metrics["map_coverage"]
         }

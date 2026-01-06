@@ -63,41 +63,47 @@ def run_experiment(num_agents, num_faults=0, max_steps=100000, headless=True):
     # Default frequency is ctrl_freq=60 usually.
     # We can get strict sim time from env if accessible, but step_count is good proxy.
     duration = step_count / 60.0 # sim.ctrl_freq
-    sim.metrics["end_time"] = duration
+    sim.measurements.metrics["end_time"] = duration
 
     
     # Merge market metrics if not already merged (e.g. if timeout occurred)
-    if "reallocation_time" not in sim.metrics:
-         sim.metrics.update(sim.market.get_metrics())
+    if "reallocation_time" not in sim.measurements.metrics:
+         sim.measurements.metrics.update(sim.market.get_metrics())
          
     # duration is already calculated above
 
     
     # Post-process metrics
     # Gini Coefficient for workload balance
-    searched = np.array(sim.metrics["sections_searched_per_drone"])
+    searched = np.array(sim.measurements.metrics["sections_searched_per_drone"])
     if np.sum(searched) > 0:
         mean_s = np.mean(searched)
         gini = np.sum(np.abs(searched - mean_s)) / (2 * num_agents * mean_s)
     else:
         gini = 0.0
         
+    # Calculate coverage explicitly for all outcomes
+    total_searched = np.sum(searched)
+    total_sections = sim.grid_size * sim.grid_size
+    coverage_pct = (total_searched / total_sections) * 100.0
+        
     result = {
         "num_agents": num_agents,
         "num_faults": num_faults,
-        "success": sim.metrics.get("success", False),
+        "success": sim.measurements.metrics.get("success", False),
         "duration": duration,
-        "total_distance": sim.metrics["total_distance"],
-        "avg_distance": sim.metrics["total_distance"] / num_agents,
+        "total_distance": sim.measurements.metrics["total_distance"],
+        "avg_distance": sim.measurements.metrics["total_distance"] / num_agents,
         "gini_index": gini,
         "gini_index": gini,
         "sections_per_agent": str(searched.tolist()),
-        "reallocation_time": sim.metrics.get("reallocation_time", 0.0),
-        "cost_efficiency": sim.metrics.get("cost_efficiency", 0.0),
-        "recovery_rate": sim.metrics.get("recovery_count", 0),
-        "failure_reason": sim.metrics.get("failure_reason", "Unknown") if not sim.metrics.get("success", False) else None,
-        "crashed_count": sim.metrics.get("crashed_count", 0),
-        "failed_count": sim.metrics.get("failed_count", 0)
+        "reallocation_time": sim.measurements.metrics.get("reallocation_time", 0.0),
+        "cost_efficiency": sim.measurements.metrics.get("cost_efficiency", 0.0),
+        "recovery_rate": sim.measurements.metrics.get("recovery_count", 0),
+        "failure_reason": sim.measurements.metrics.get("failure_reason", "Unknown") if not sim.measurements.metrics.get("success", False) else None,
+        "crashed_count": sim.measurements.metrics.get("crashed_count", 0),
+        "failed_count": sim.measurements.metrics.get("failed_count", 0),
+        "map_coverage": coverage_pct
     }
     
     sim.env.close()

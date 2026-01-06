@@ -1,4 +1,3 @@
-
 import time
 import numpy as np
 import pybullet as p
@@ -44,12 +43,10 @@ class SimulationManager:
         self.ctrl_freq = CTRL_FREQ
         self.headless = headless
         
-        # Metrics
-        
         # Managers
         self.measurements = MeasurementManager(num_agents)
-        
         self.measurements.start_mission()
+        
         print("Initializing environment...")
         self.initial_xyz_agent, self.formation_radius = generate_drone_positions(num_agents, HOME_POSITION)
 
@@ -70,8 +67,6 @@ class SimulationManager:
         )
 
         self.visualizer = VisualizationManager(num_agents, self.env.CLIENT, headless=headless)
-
-
         self.charged_complete = [False] * num_agents
         self.area = SearchArea(grid_size=(grid_size, grid_size), section_size=SECTION_SIZE, home=self.search_offset)
 
@@ -103,12 +98,10 @@ class SimulationManager:
         self.return_timer = [0.0] * num_agents
         self.return_active = [False] * num_agents
 
-        print("Mission started. drones searching assigned sections...")
+        print("Mission started. Drones searching assigned sections...")
         self.current_targets = [None] * num_agents
         self.path_progress = [0] * num_agents
-        self.path_progress = [0] * num_agents
         self.last_reach_time = [0.0] * num_agents
-        self.current_section = [None] * num_agents
         self.current_section = [None] * num_agents
         self.last_broadcast = [0.0] * num_agents
         self.last_positions = np.array([d.position for d in self.swarm]) # For distance calc
@@ -118,14 +111,9 @@ class SimulationManager:
 
         self.crashed = [False] * num_agents
         self.crash_timer = [0.0] * num_agents
-        self.crashed = [False] * num_agents
-        self.crash_timer = [0.0] * num_agents
 
-        
-        # Generates distinct colors for each drone (Golden Ratio HSV)
         # Drone colors managed by VisualizationManager
         self.visualizer.apply_drone_colors(self.env.DRONE_IDS if not self.headless else [])
-
 
         self.retasker = RetaskingSystem(self.home_targets)
         self.health_status = [0] * num_agents
@@ -139,7 +127,11 @@ class SimulationManager:
         
         # Camera tracking
         self.camera_target_id = None
-        
+
+    # =========================================================================
+    # PUBLIC INTERFACE
+    # =========================================================================
+
     def set_camera_target(self, drone_id):
         self.camera_target_id = drone_id
 
@@ -147,606 +139,67 @@ class SimulationManager:
     def metrics(self):
         """Backward compatibility for external scripts accessing metrics directly."""
         return self.measurements.metrics
-        
-
 
     def step(self):
-        # Return True if simulation should continue, False if done/closed
+        """
+        Orchestrates a single simulation step.
+        Returns: True if simulation should continue, False otherwise.
+        """
+        # 1. Validation & Early Exits
         if self.mission_complete:
-            self.measurements.update_error_metrics(self.crashed, self.health_status, self.battery_late)
+            self._handle_mission_completion()
             return False
-            
-        if not hasattr(self, 'env') or self.env.CLIENT < 0:
-             return False
-            
-        # Use simulation time instead of wall clock
-        # PYB_FREQ is usually 240, but we step at ctrl_freq (60).
-        # self.env.step_counter counts physics steps.
+        
+        if not self._is_env_valid():
+            return False
+
+        # 2. Global State & Inputs
         t = self.env.step_counter / self.env.PYB_FREQ
+        self._handle_injected_faults()
+        self._check_mission_abort()
         
+        # 3. Critical Failure Checks
+        if self._check_critical_swarm_failure():
+            return False
+
+        # 4. Paused State Handling
+        if not self._handle_pause_state():
+            return True # Paused, but keep sim running
+
+        # 5. Market & Task Management
+        self._manage_market_and_penalties(t)
+
+        # 6. Swarm Update Loop
         actions = np.zeros((self.num_agents, 4))
-        all_positions = get_all_positions(self.env, self.num_agents)
-
-        if controller.injected_fault:
-            fault_drone, fault_code = controller.injected_fault
-            self.health_status[fault_drone] = fault_code
-            controller.injected_fault = None
-            fault_name = get_health_name(fault_code)
-            print(f"[GUI Inject] agent {fault_drone} fault set to {fault_name}")
-
-        if all(self.crashed) and not self.is_descending and not self.measurements.metrics.get("success", False):
-             print("All drones crashed! Ending simulation.")
-             self.measurements.end_mission(success=False, reason="All Drones Crashed")
-             self.measurements.update_error_metrics(self.crashed, self.health_status, self.battery_late)
-             return False
-
-        # Additional Check: If everyone is either crashed or sitting at home (battery dead/fault), we can't search.
-        # This prevents infinite loops if max_steps is removed.
-        drones_incapacitated = []
-        for i in range(self.num_agents):
-            is_down = self.crashed[i] or (i < len(controller.home_ready) and controller.home_ready[i])
-            drones_incapacitated.append(is_down)
+        all_positions = get_all_positions(self.env, self.num_agents) 
         
-        if all(drones_incapacitated) and not self.mission_complete:
-             print("All drones are crashed or grounded at home. Mission failed (Swarm Depleted).")
-             self.measurements.end_mission(success=False, reason="Swarm Depleted")
-             self.measurements.update_error_metrics(self.crashed, self.health_status, self.battery_late)
-             return False
+        # Determine if we are in a global descent phase
+        if self.returning_home and self._check_ready_for_descent():
+             self.is_descending = True
 
-        if controller.mission_aborted:
-            self.returning_home = True
-            controller.mission_aborted = False
-            print("GUI: Mission abort detected, returning home!")
-
-        if not controller.search_active and not self.returning_home:
-            # Paused state
-            if self.headless:
-                # Auto-start in headless mode
-                controller.search_active = True
-            else:
-                return True
-
-        if not self.market_initialized:
-            drone_positions = [drone.position for drone in self.swarm]
-            self.market.open_market(drone_positions)
-            controller.market_text = self.market.get_market_status()
-            rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
-            self.market_initialized = True
-
-        for j in range(self.num_agents):
-            if self.return_reason[j] == "battery" and not self.charged_complete[j]:
-                if j in self.battery_return_start and (t - self.battery_return_start[j]) > BATTERY_CHANGE_DURATION:
-                    if j not in self.battery_late:
-                        print(f"[Battery Timeout] Drone {j} took too long to change battery. Releasing sections.")
-                        self.battery_late.add(j)
-                        self.market.release_drone_sections(j, current_time=t)
-                        controller.market_text = self.market.get_market_status()
-                        drone_positions = [d.position for d in self.swarm]
-                        self.market.dynamic_update(drone_positions, current_time=t)
-                        controller.market_text = self.market.get_market_status()
-                        rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
-
-        for i, drone in enumerate(self.swarm):
-            state = drone.update()
-            
-            # Update metrics (Total Distance)
-            curr_pos = np.array(drone.position)
-            dist = np.linalg.norm(curr_pos - self.last_positions[i])
-            self.measurements.update_distance(dist)
-            self.last_positions[i] = curr_pos
-            current_pos = np.array(state[0:3])
-
-            if (not self.subject_found and not self.voting_active and not self.returning_home 
-                and controller.search_active and self.current_section[i] is not None 
-                and self.subject_pos is not None):
-                
-                drone_xy = np.array(current_pos[:2])
-                subject_xy = np.array(self.subject_pos[:2])
-                dist_to_subject = np.linalg.norm(drone_xy - subject_xy)
-
-                is_subject_section_assigned_to_me = (
-                    self.current_section[i] == self.subject_section_id and
-                    self.area.sections[self.subject_section_id].assigned_drone == i
-                )
-
-                if (is_subject_section_assigned_to_me and dist_to_subject < SUBJECT_DETECTION_DIST):
-                    self.subject_found = True
-                    self.detecting_drone_id = i
-                    drone.subject_found = 1
-                    controller.middle_text = f"Drone {i} detected possible subject at {np.round(self.subject_pos[:2], 2)} in section {self.current_section[i]}!"
-                    print(controller.middle_text)
-                    self.detecting_drone_id = i
-
-                    dists = [
-                        (j, np.linalg.norm(np.array(self.swarm[j].position[:2]) - np.array(self.subject_pos[:2])))
-                        for j in range(self.num_agents) if j != i
-                    ]
-                    dists.sort(key=lambda x: x[1])
-                    self.helpers = [idx for idx, _ in dists[:3]]
-                    print(f"[Subject] Drones {self.helpers} assigned to verify subject")
-                    
-                    controller.voting_text = (
-                        "Subject verification started\n"
-                        f"Candidate position: {np.round(self.subject_pos[:2], 2)}\n"
-                        f"Verifiers: {self.helpers}\n"
-                    )
-
-                    self.verification_targets = {}
-                    angles = VOTING_ANGLES
-                    for k, drone_id in enumerate(self.helpers):
-                        offx = np.cos(np.radians(angles[k])) * VOTING_RADIUS
-                        offy = np.sin(np.radians(angles[k])) * VOTING_RADIUS
-                        self.verification_targets[drone_id] = np.array([self.subject_pos[0] + offx,
-                                                                    self.subject_pos[1] + offy,
-                                                                    FLY_HEIGHT])
-                    
-                    self.visualizer.draw_verification_targets(self.verification_targets)
-                    self.voting_active = True
-                    self.votes = []
-
-            if i in controller.charged_drones:
-                print(f"[MAIN] Drone {i} recharged — rejoining mission.")
-                controller.charged_drones.remove(i)
-                self.health_status[i] = 0
-                controller.home_ready[i] = False
-                self.charged_complete[i] = True
-                self.battery_return_start.pop(i, None)
-                self.return_reason[i] = ""
-
-                if i in self.battery_late:
-                    print(f"[Penalty] Drone {i} took too long to charge. Must buy section (cost 2 points).")
-                    self.market.force_buy_section(i, cost=2)
-                    self.battery_late.remove(i)
-                else:
-                    drone_positions = [d.position for d in self.swarm]
-                    self.market.dynamic_update(drone_positions, current_time=t)
-
-                controller.market_text = self.market.get_market_status()
-                rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
-                continue
-
-            if controller.injected_fault:
-                pass # Already handled at top of loop
-
-            # Fault handling (Retasking)
-            if self.health_status[i] != 0 and not self.returning_home:
-                # Let RetaskingSystem decide
-                decision = self.retasker.handle(i, self.health_status[i])
-                if decision:
-                    action_code = decision["action"]
-                    # If action implies dropping tasks:
-                    if action_code in ["LAND_NOW", "RETURN_HOME"]:
-                         # If returning home due to fault, we might want to release tasks?
-                         # Usually yes.
-                         # Check if we already released?
-                         pass
-                    
-                    # Implementation specific:
-                    # For BAD_BATTERY, we release sections immediately?
-                    if self.health_status[i] in [1, 2]: # Battery issues
-                         # check if already handled
-                         pass
-                    
-                    # For critical failures (Motor/GPS)
-                    if self.health_status[i] >= 3:
-                        if not self.crashed[i] and not self.return_active[i]: # first time detection
-                             print(f"CRITICAL FAULT on Agent {i}. Releasing sections.")
-                             self.market.release_drone_sections(i, current_time=t)
-                             self.crashed[i] = True # Mark as virtually crashed/out of service
-                             
-                # We need to make sure we don't spam release
-                # Simple logic: If health is bad, we release once.
-                # I'll add a 'released_faults' set to track.
-                pass 
-                result = self.retasker.handle(i, self.health_status[i])
-                if result:
-                    action = result["action"]
-                    if action == "RETURN_HOME":
-                        target_pos = np.array(self.home_targets[i])
-                        diff = target_pos - current_pos
-                        dist = np.linalg.norm(diff)
-                        if dist > 0.05:
-                            next_pos = current_pos + 0.3 * diff
-                        else:
-                            next_pos = target_pos
-                        rpm = drone.step_toward(next_pos)
-                        if dist < 0.2:
-                            controller.home_ready[i] = True
-                        else:
-                            controller.home_ready[i] = False
-                        actions[i, :] = rpm
-                        if not self.return_active[i]:
-                            self.return_active[i] = True
-                            self.return_timer[i] = t
-                            self.charged_complete[i] = False
-                            self.return_reason[i] = "battery"
-                            self.battery_return_start[i] = t
-                            print(f"Agent {i} returning home for battery change.")
-                        continue
-                    elif action == "LAND_NOW":
-                        target_pos = np.array([current_pos[0], current_pos[1], 0.05])
-                        next_pos = current_pos + 0.2 * (target_pos - current_pos)
-                        rpm = drone.step_toward(next_pos)
-                        actions[i, :] = rpm
-                        self.market.release_drone_sections(i)
-                        controller.market_text = self.market.get_market_status()
-                        drone_positions = [d.position for d in self.swarm]
-                        self.market.dynamic_update(drone_positions)
-                        controller.market_text = self.market.get_market_status()
-                        rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
-                        controller.middle_text = f"Agent {i} emergency landed — sections returned to market."
-                        continue
-                    elif action in ("HOVER", "REDUCED_ROLE", "HOVER_AND_RECONNECT"):
-                        target_pos = np.array([current_pos[0], current_pos[1], 2])
-                        next_pos = current_pos + 0.2 * (target_pos - current_pos)
-                        rpm = drone.step_toward(next_pos)                        
-                        actions[i, :] = rpm
-                        self.market.release_drone_sections(i)
-                        controller.market_text = self.market.get_market_status()
-                        drone_positions = [d.position for d in self.swarm]
-                        self.market.dynamic_update(drone_positions)
-                        controller.market_text = self.market.get_market_status()
-                        controller.middle_text = f"Agent {i} is being used as a relay, sections returned to market."
-                        continue
-
-            if not self.crashed[i]:
-                if current_pos[2] <= CRASH_HEIGHT_THRESHOLD:
-                    if self.crash_timer[i] == 0.0:
-                        self.crash_timer[i] = t
-                    elif t - self.crash_timer[i] > CRASH_TIMEOUT:
-                        self.crashed[i] = True
-                        print(f"drone {i} has crashed! Altitude={current_pos[2]:.2f}")
-                        p.addUserDebugText("CRASHED", [current_pos[0], current_pos[1], 0.1], textColorRGB=[1, 0, 0], textSize=2, lifeTime=0, physicsClientId=self.env.CLIENT)
-                        self.market.release_drone_sections(i)
-                        controller.market_text = self.market.get_market_status()
-                        drone_positions = [d.position for d in self.swarm]
-                        self.market.dynamic_update(drone_positions)
-                        controller.market_text = self.market.get_market_status()
-                        continue
-                else:
-                    self.crash_timer[i] = 0.0
-            else:
-                continue
-
-            if t - self.last_broadcast[i] >= BROADCAST_PERIOD:
-                msg = drone.broadcast()
-                print(f"[Ping] drone {msg['ID']} at {msg['Pos']} | Time: {msg['Timer']}s")
-                self.last_broadcast[i] = t
-
-            if self.returning_home:
-                if self.crashed[i]: continue
-                state = drone.update()
-                current_pos = np.array(state[0:3])
-                target_pos = np.array([self.home_targets[i][0], self.home_targets[i][1], FLY_HEIGHT])
-                diff = target_pos - current_pos
-                dist = np.linalg.norm(diff)
-                if dist > RETURN_HOME_DIST_THRESHOLD:
-                    direction = diff / (dist + 1e-6)
-                    speed_scale = np.clip(dist / RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX)
-                    move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * RETURN_HOME_STEP_MULTIPLIER)
-                    next_pos = current_pos + direction * move_dist
-                else:
-                    next_pos = target_pos
-                next_pos[2] = FLY_HEIGHT
-                rpm = drone.step_toward(next_pos)
-                actions[i, :] = rpm
-                continue
-
-            if self.current_targets[i] is None:
-                try:
-                    cell_id, path = next(self.drone_tasks[i])
-                except StopIteration:
-                    hover_target = np.array([current_pos[0], current_pos[1], FLY_HEIGHT])
-                    rpm = drone.step_toward(hover_target)
-                    actions[i, :] = rpm
-                    continue
-                self.current_targets[i] = path
-                self.path_progress[i] = 0
-                self.current_section[i] = cell_id
-                self.current_section[i] = cell_id
-                self.last_reach_time[i] = t
-                print(f"drone {i} → new section {cell_id}")
-
-            if self.voting_active:
-                # Remove crashed verifiers
-                crashed_verifiers = [j for j in self.verification_targets.keys() if self.crashed[j]]
-                for cv in crashed_verifiers:
-                     print(f"[Subject] Verifier {cv} crashed. Removing from voting pool.")
-                     del self.verification_targets[cv]
-                     
-                if not self.verification_targets:
-                     print("[Subject] All verifiers crashed! Re-assigning or failing?")
-                     # For simplicity, if all crashed, we abort voting and reset?
-                     # Or just wait? If empty, len(votes) >= 0 is true immediately.
-                     # But we need at least one vote?
-                     # Let's abort voting.
-                     # Let's abort voting.
-                     self.voting_active = False
-                     self.votes = []
-                     self.subject_found = False # Reset so we can try again
-                     self.visualizer.clear_verification_targets()
-                     controller.voting_text = "Voting aborted (all verifiers crashed)."
-                     print(controller.voting_text)
-     
-                for j in list(self.verification_targets.keys()):
-                    target = self.verification_targets[j]
-                    diff_xy = target[:2] - self.swarm[j].position[:2]
-                    dist = np.linalg.norm(diff_xy)
-                    if dist > VERIFICATION_DIST:
-                        direction = diff_xy / (dist + 1e-6)
-                        move_dist = min(dist, MAX_SPEED / self.ctrl_freq * VERIFICATION_SPEED_FACTOR)
-                        next_xy = self.swarm[j].position[:2] + direction * move_dist
-                        next_pos = np.array([next_xy[0], next_xy[1], FLY_HEIGHT])
-                        rpm = self.swarm[j].step_toward(next_pos)
-                        actions[j, :] = rpm
-                    else:
-                        if j not in [v["drone_id"] for v in self.votes]:
-                            self.votes.append({"drone_id": j, "vote": "YES"})
-                            msg = f"Drone {j} votes YES at {np.round(self.swarm[j].position[:2], 2)}"
-                            print(msg)
-                            controller.voting_text += msg + "\n"
-                        hover_target = np.array([self.swarm[j].position[0], self.swarm[j].position[1], FLY_HEIGHT])
-                        rpm = self.swarm[j].step_toward(hover_target)
-                        actions[j, :] = rpm
-
-                for k in range(self.num_agents):
-                    if k not in self.verification_targets and not self.crashed[k]:
-                        if self.current_targets[k] is not None and self.path_progress[k] < len(self.current_targets[k]):
-                            target_pos = self.current_targets[k][self.path_progress[k]]
-                            diff = np.array(target_pos) - self.swarm[k].position
-                            dist = np.linalg.norm(diff)
-                            direction = diff / (dist + 1e-6)
-                            move_dist = min(dist, MAX_SPEED / self.ctrl_freq)
-                            next_pos = self.swarm[k].position + direction * move_dist
-                            push_drones = avoidance_from_drones(self.swarm[k].position, all_positions, k, radius=AVOID_DRONE_RADIUS, gain=AVOID_DRONE_GAIN_VERIFY, max_push=AVOID_DRONE_MAX_PUSH)
-                            push_border = avoidance_from_borders(self.swarm[k].position, (self.grid_size, self.grid_size), SECTION_SIZE, self.search_offset, margin=AVOID_BORDER_MARGIN_VERIFY, gain=AVOID_BORDER_GAIN, max_push=AVOID_BORDER_MAX_PUSH)
-                            next_pos += AVOIDANCE_FACTOR * (push_drones + push_border)
-                            next_pos[2] = FLY_HEIGHT
-                            rpm = self.swarm[k].step_toward(next_pos)
-                            actions[k, :] = rpm
-                            if dist < WAYPOINT_TOLERANCE:
-                                if t - self.last_reach_time[k] > HOVER_TIME:
-                                    self.path_progress[k] += 1
-                                    self.last_reach_time[k] = t
-                        else:
-                            hover_target = np.array([self.swarm[k].position[0], self.swarm[k].position[1], FLY_HEIGHT])
-                            rpm = self.swarm[k].step_toward(hover_target)
-                            actions[k, :] = rpm
-
-                if len(self.votes) >= len(self.verification_targets):
-                    print("[Subject] Voting complete!")
-                    controller.middle_text = "✅ Subject confirmed! All drones returning home."
-                    controller.voting_text += "✅ Subject confirmed — returning home.\n"
-                    total_time = round(time.time() - self.measurements.metrics["start_time"], 1)
-                    controller.middle_text += f"\nSubject confirmed at {np.round(self.subject_pos[:2], 2)} | Time: {total_time}s"
-                    
-                    # Calculate map coverage
-                    total_sections = self.grid_size * self.grid_size
-                    searched_count = sum(1 for s in self.market.sections if s["searched"])
-                    coverage_pct = (searched_count / total_sections) * 100.0
-                    self.measurements.record_map_coverage(coverage_pct)
-                    
-                    self.measurements.end_mission(success=True)
-                    # Merge market metrics
-                    self.measurements.merge_market_metrics(self.market.get_metrics())
-                    summary = self.measurements.get_metrics_summary()
-                    print(f"Metrics: Success! Time={summary['duration']:.2f}s | Coverage={summary['map_coverage']:.1f}%")
-                    
-                    if self.headless:
-                        self.mission_complete = True
-                        return True
-                        
-                    self.returning_home = True
-                    self.voting_active = False
-                    self.visualizer.clear_verification_targets()
-                    min_dist = float("inf")
-                    subject_section = None
-                    for sec in self.area.sections:
-                        dist_to_section = np.linalg.norm(np.array(sec.position) - np.array(self.subject_pos[:2]))
-                        if dist_to_section < min_dist:
-                            min_dist = dist_to_section
-                            subject_section = sec
-                    if subject_section:
-                        self.env.mark_section_as_searched(subject_section.position, color=(1, 0.84, 0))
-                        print(f"[Subject] Located in section {subject_section.id}")
-                        controller.middle_text += f"\nSubject located in Section {subject_section.id}"
-                self.env.step(actions)
-                return True
-
-            if self.current_targets[i] is None:
-                hover_target = np.array([current_pos[0], current_pos[1], FLY_HEIGHT])
-                rpm = drone.step_toward(hover_target)
-                actions[i, :] = rpm
-                continue
-
-            target_pos = self.current_targets[i][self.path_progress[i]]
-            
-            # Draw debug line to waypoint if GUI is active
-            # Draw debug line to waypoint if GUI is active (throttled)
-            if not self.headless:
-                # Debug Waypoint Line
-                if self.env.step_counter % 10 == 0:
-                     self.visualizer.update_waypoint_line(i, current_pos, target_pos, show_lines=controller.show_debug_lines)
-                elif not controller.show_debug_lines:
-                     self.visualizer.clear_debug_lines() # This might be aggressive to call in loop? No, handled in manager.
-
-                # Full Section Path Visualization
-                if controller.show_full_paths and not self.visualizer.section_path_lines[i]:
-                    self.visualizer.draw_full_path(i, self.current_targets[i], enabled=True)
-                elif not controller.show_full_paths and self.visualizer.section_path_lines[i]:
-                    self.visualizer.clear_full_path(i)
-
-            diff = np.array(target_pos) - current_pos
-            dist = np.linalg.norm(diff)
-            
-            # Default direction (straight to waypoint)
-            direction = diff / (dist + 1e-6)
-            
-            if controller.flight_mode == "standard":
-                speed_scale = np.clip(dist / NAV_STD_SPEED_DIVISOR, NAV_STD_SPEED_MIN, NAV_STD_SPEED_MAX)
-            elif controller.flight_mode == "aggressive":
-                speed_scale = NAV_AGGRESSIVE_SPEED_SCALE
-            else:
-                speed_scale = 1.0 # Fallback
-
-            move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * NAV_GLOBAL_STEP_MULTIPLIER)
-            next_pos = current_pos + direction * move_dist
-
-            # Navigation/Avoidance Forces
-            # Reduced gains to prevent "repulsion" from valid waypoints
-            push_drones = avoidance_from_drones(current_pos, all_positions, i, radius=AVOID_DRONE_RADIUS, gain=AVOID_DRONE_GAIN_NAV, max_push=AVOID_DRONE_MAX_PUSH)
-            push_border = avoidance_from_borders(current_pos, (self.grid_size, self.grid_size), SECTION_SIZE, self.search_offset, margin=AVOID_BORDER_MARGIN_NAV, gain=AVOID_BORDER_GAIN, max_push=AVOID_BORDER_MAX_PUSH)
-            next_pos = next_pos + AVOIDANCE_FACTOR * (push_drones + push_border)
-            
-            if int(t) % 60 == 0:
-                drone.controller.reset()
-            
-            next_pos[2] = FLY_HEIGHT
-            rpm = drone.step_toward(next_pos)
-            actions[i, :] = rpm
-
-            if dist < WAYPOINT_TOLERANCE:
-                if t - self.last_reach_time[i] > HOVER_TIME:
-                    self.path_progress[i] += 1
-                    self.last_reach_time[i] = t
-                    if self.path_progress[i] >= len(self.current_targets[i]):
-                        if self.current_section[i] is not None:
-                            self.area.mark_searched(self.current_section[i])
-                            cell_center = self.area.sections[self.current_section[i]].position
-                            self.env.mark_section_as_searched(cell_center)
-                            print(f"drone {i} finished section {self.current_section[i]}")
-                            self.market.reward_and_remove_section(i, self.current_section[i])
-                            # Section completed metric
-                            self.measurements.increment_sections_searched(i)
-                            controller.market_text = self.market.get_market_status()
-                            drone_positions = [d.position for d in self.swarm]
-                            self.market.dynamic_update(drone_positions, current_time=t)
-                            controller.market_text = self.market.get_market_status()
-                            rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
-                            self.current_targets[i] = None
-                            self.path_progress[i] = 0
-                            self.current_targets[i] = None
-                            self.path_progress[i] = 0
-                            self.last_reach_time[i] = t
-                            
-                            # Clear path visualization for the finished section
-                            self.visualizer.clear_full_path(i)
-                            
-                            try:
-                                cell_id, path = next(self.drone_tasks[i])
-                                self.current_section[i] = cell_id
-                                self.current_targets[i] = path
-                                self.visualizer.draw_full_path(i, path, enabled=controller.show_full_paths)
-                            except StopIteration:
-                                hover_target = np.array([current_pos[0], current_pos[1], FLY_HEIGHT])
-                                rpm = drone.step_toward(hover_target)
-                                actions[i, :] = rpm
-                                continue
-
-        broadcast_lines = []
-        for i, drone in enumerate(self.swarm):
-            msg = drone.broadcast()
-            broadcast_lines.append(f"Agent {msg['ID']}: Pos={tuple(np.round(msg['Pos'],2))}, Time={msg['Timer']}s")
-        controller.broadcast_text = "\n".join(broadcast_lines)
-
-        assign_lines = []
-        for i in range(self.num_agents):
-            sections = [c.id for c in self.area.sections if c.assigned_drone == i]
-            assign_lines.append(f"drone {i}: Sections {sections}")
-        controller.assignment_text = "\n".join(assign_lines)
-
-        searched_lines = []
-        for c in self.area.sections:
-            status = "✅ Done" if c.searched else "🔲 Searching"
-            searched_lines.append(f"Section {c.id}: {status}")
-        controller.searched_text = "\n".join(searched_lines)
-
-        # Handle descent if returning home and all drones are close
-        if self.returning_home and not self.is_descending:
-             distances = []
-             for i in range(self.num_agents):
-                 if self.crashed[i]: continue
-                 pos = np.array(self.env._getDroneStateVector(i)[0:3])
-                 dist = np.linalg.norm(pos[:2] - self.home_targets[i][:2])
-                 distances.append(dist)
-             if len(distances) == 0 or all(d < 1.8 for d in distances):
-                  print("All drones are returning home. Starting descent.")
-                  self.is_descending = True
-        
         if self.is_descending:
-             self.descent_timer += 1
-             if self.descent_timer < self.ctrl_freq * 30: # 30 seconds
-                for i, drone in enumerate(self.swarm):
-                    if self.crashed[i]: continue
-                    state = drone.update()
-                    current_pos = np.array(state[0:3])
-                    target_pos = np.array([self.home_targets[i][0], self.home_targets[i][1], 0.05])
-                    next_pos = current_pos + 0.2 * (target_pos - current_pos)
-                    rpm = drone.step_toward(next_pos)
-                    actions[i, :] = rpm
-             else:
-                # Finalize
-                for i, drone in enumerate(self.swarm):
-                    if self.crashed[i]: continue
-                    p.resetBasePositionAndOrientation(
-                        self.env.DRONE_IDS[i],
-                        [self.home_targets[i][0], self.home_targets[i][1], 0.1],
-                        [0, 0, 0, 1],
-                        physicsClientId=self.env.CLIENT
-                    )
-                    p.resetBaseVelocity(self.env.DRONE_IDS[i], [0,0,0], [0,0,0], physicsClientId=self.env.CLIENT)
-                print("All drones landed and motors shut down. Mission complete!")
-                controller.search_active = False
-                controller.simulation_running = False
-                self.mission_complete = True
-                self.show_summary()
+            actions = self._handle_global_descent()
+        else:
+            # Standard Drone Updates
+            for i, drone in enumerate(self.swarm):
+                actions[i, :] = self._update_single_drone(i, drone, t, all_positions)
 
-        if self.is_descending: # already stepped actions
-            pass # actions updated inside descent block
-        
-        # Override actions if descending block didn't run (it runs partially)
-        # Actually I need to be careful not to double step.
-        # The descent block above updates actions but I also need to make sure I don't partial-update.
-        # Let's simplify: if descending, we set actions in that block.
-        # If not descending, we set actions in the main loop above.
-        # In both cases we call env.step(actions) at the end.
-        
-        if self.returning_home:
-            # The actions were set in the returning_home block unless we are descending
-            pass
+        # 7. GUI & Visualization Updates
+        self._update_gui_and_camera()
 
-        if not self.is_descending and not self.voting_active and not self.returning_home:
-             # Check if all searched
-             if all(c.searched for c in self.area.sections):
-                 print("The search area is searched! drones will return home together...")
-                 self.returning_home = True
-
-        # Camera tracking update
-        if self.camera_target_id is not None:
-             if 0 <= self.camera_target_id < self.num_agents:
-                 try:
-                     state = self.swarm[self.camera_target_id].update() # Peek state without side effects? 
-                     # Actually drone.update() might be expensive or state-changing if called multiple times?
-                     # No, drone.update() usually just reads state in this codebase or does minimal calc.
-                     # But safer to just read position from pybullet directly or use cached position if available.
-                     # Let's use the pybullet API directly to be safe and accurate to visual state.
-                     pos, _ = p.getBasePositionAndOrientation(self.env.DRONE_IDS[self.camera_target_id], physicsClientId=self.env.CLIENT)
-                     p.resetDebugVisualizerCamera(
-                         cameraDistance=1.5,
-                         cameraYaw=-90,
-                         cameraPitch=-40,
-                         cameraTargetPosition=[pos[0], pos[1], pos[2]]
-                     )
-                 except Exception:
-                     pass
-
+        # 8. Physics Step
         self.env.step(actions)
+        
+        # 9. Post-Step Logic (Mission Success Check)
+        if not self.is_descending and not self.voting_active and not self.returning_home:
+             self._check_mission_success_condition()
+
         return True
 
     def show_summary(self):
         subject_section = None
         for sec in self.area.sections:
-            if np.linalg.norm(np.array(sec.position) - np.array(self.subject_pos[:2])) < 1.0: # rough check
+            if np.linalg.norm(np.array(sec.position) - np.array(self.subject_pos[:2])) < 1.0: 
                  subject_section = sec
                  break
 
@@ -779,5 +232,586 @@ class SimulationManager:
                  pass
              self.env.CLIENT = -1
 
+    # =========================================================================
+    # GLOBAL STATE & HELPERS
+    # =========================================================================
+
+    def _is_env_valid(self):
+        return hasattr(self, 'env') and self.env.CLIENT >= 0
+
+    def _handle_mission_completion(self):
+        self.measurements.update_error_metrics(self.crashed, self.health_status, self.battery_late)
+
+    def _check_mission_abort(self):
+        if controller.mission_aborted:
+            self.returning_home = True
+            controller.mission_aborted = False
+            print("GUI: Mission abort detected, returning home!")
+
+    def _handle_pause_state(self):
+        if not controller.search_active and not self.returning_home:
+            if self.headless:
+                controller.search_active = True
+                return True
+            else:
+                return False
+        return True
+
+    def _check_critical_swarm_failure(self):
+        # 1. All crashed
+        if all(self.crashed) and not self.is_descending and not self.measurements.metrics.get("success", False):
+            print("All drones crashed! Ending simulation.")
+            self.measurements.end_mission(success=False, reason="All Drones Crashed")
+            self._handle_mission_completion()
+            return True
+            
+        # 2. Incapacitated (crashed or grounded)
+        drones_incapacitated = []
+        for i in range(self.num_agents):
+            is_down = self.crashed[i] or (i < len(controller.home_ready) and controller.home_ready[i])
+            drones_incapacitated.append(is_down)
+        
+        if all(drones_incapacitated) and not self.mission_complete:
+            print("All drones are crashed or grounded. Mission failed (Swarm Depleted).")
+            self.measurements.end_mission(success=False, reason="Swarm Depleted")
+            self._handle_mission_completion()
+            return True
+            
+        return False
+
+    def _handle_injected_faults(self):
+        if controller.injected_fault:
+            fault_drone, fault_code = controller.injected_fault
+            self.health_status[fault_drone] = fault_code
+            controller.injected_fault = None
+            fault_name = get_health_name(fault_code)
+            print(f"[GUI Inject] agent {fault_drone} fault set to {fault_name}")
+
+    def _initialize_market(self):
+        drone_positions = [drone.position for drone in self.swarm]
+        self.market.open_market(drone_positions)
+        controller.market_text = self.market.get_market_status()
+        rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
+        self.market_initialized = True
+
+    def _manage_market_and_penalties(self, t):
+        if not self.market_initialized:
+            self._initialize_market()
+            
+        for j in range(self.num_agents):
+            if self.return_reason[j] == "battery" and not self.charged_complete[j]:
+                if j in self.battery_return_start and (t - self.battery_return_start[j]) > BATTERY_CHANGE_DURATION:
+                    if j not in self.battery_late:
+                        self._apply_battery_penalty(j, t)
+
+    def _apply_battery_penalty(self, drone_id, t):
+        print(f"[Battery Timeout] Drone {drone_id} took too long. Releasing sections.")
+        self.battery_late.add(drone_id)
+        self.market.release_drone_sections(drone_id, current_time=t)
+        self._refresh_market_tasks(t)
+
+    def _refresh_market_tasks(self, t):
+        controller.market_text = self.market.get_market_status()
+        drone_positions = [d.position for d in self.swarm]
+        self.market.dynamic_update(drone_positions, current_time=t)
+        controller.market_text = self.market.get_market_status()
+        rebuild_tasks_from_market(self.drone_tasks, self.market, self.area, self.swarm, self.num_agents)
+
+    def _check_ready_for_descent(self):
+        """Returns True if all functional drones are close to home."""
+        if self.is_descending: return False
+        
+        distances = []
+        for i in range(self.num_agents):
+             if self.crashed[i]: continue
+             pos = np.array(self.env._getDroneStateVector(i)[0:3])
+             dist = np.linalg.norm(pos[:2] - self.home_targets[i][:2])
+             distances.append(dist)
+        
+        if len(distances) == 0 or all(d < 1.8 for d in distances):
+             print("All drones are returning home. Starting descent.")
+             return True
+        return False
+
+    def _check_mission_success_condition(self):
+         if all(c.searched for c in self.area.sections):
+             print("The search area is searched! Drones will return home together...")
+             self.returning_home = True
+
+    # =========================================================================
+    # SINGLE AGENT LOOP
+    # =========================================================================
+
+    def _update_single_drone(self, i, drone, t, all_positions):
+        """Calculates the RPM actions for a single drone."""
+        
+        # 1. Update State & Metrics
+        state = drone.update()
+        current_pos = np.array(state[0:3])
+        self._update_drone_metrics(i, current_pos)
+
+        # 2. Check Recharged Status
+        if i in controller.charged_drones:
+            self._handle_recharged_drone(i, t)
+            # Hover momentarily after reset
+            return drone.step_toward(np.array([current_pos[0], current_pos[1], FLY_HEIGHT]))
+
+        # 3. Handle Faults
+        if self.health_status[i] != 0 and not self.returning_home:
+            fault_action = self._process_fault_logic(i, drone, current_pos, t)
+            if fault_action is not None:
+                return fault_action
+
+        # 4. Crash Handling
+        if self.crashed[i]: 
+            return np.zeros(4) 
+        if self._check_crash_condition(i, current_pos, t):
+             # Just crashed this frame
+             self.market.release_drone_sections(i)
+             self._refresh_market_tasks(t)
+             return np.zeros(4)
+
+        # 5. Periodic Broadcast
+        if t - self.last_broadcast[i] >= BROADCAST_PERIOD:
+            drone.broadcast()
+            self.last_broadcast[i] = t
+
+        # 6. Global Return Home
+        if self.returning_home:
+            return self._calculate_return_home_action(i, drone, current_pos)
+
+        # 7. Subject Detection
+        if self._should_check_for_subject(i):
+             self._check_for_subject(i, drone, current_pos)
+
+        # 8. Voting
+        if self.voting_active:
+            action = self._handle_voting_behavior(i, drone, current_pos, t, all_positions)
+            if action is not None: return action
+
+        # 9. Standard Search Navigation
+        return self._execute_search_navigation(i, drone, current_pos, t, all_positions)
+
+    def _update_drone_metrics(self, i, current_pos):
+        dist = np.linalg.norm(current_pos - self.last_positions[i])
+        self.measurements.update_distance(dist)
+        self.last_positions[i] = current_pos
+
+    def _handle_recharged_drone(self, i, t):
+        print(f"[MAIN] Drone {i} recharged — rejoining mission.")
+        controller.charged_drones.remove(i)
+        self.health_status[i] = 0
+        controller.home_ready[i] = False
+        self.charged_complete[i] = True
+        self.battery_return_start.pop(i, None)
+        self.return_reason[i] = ""
+
+        if i in self.battery_late:
+            print(f"[Penalty] Drone {i} took too long to charge. Must buy section (cost 2 points).")
+            self.market.force_buy_section(i, cost=2)
+            self.battery_late.remove(i)
+        
+        self._refresh_market_tasks(t)
+
+    # =========================================================================
+    # FAULT & CRASH HANDLING
+    # =========================================================================
+
+    def _check_crash_condition(self, i, current_pos, t):
+        if current_pos[2] <= CRASH_HEIGHT_THRESHOLD:
+            if self.crash_timer[i] == 0.0:
+                self.crash_timer[i] = t
+            elif t - self.crash_timer[i] > CRASH_TIMEOUT:
+                self.crashed[i] = True
+                print(f"Drone {i} has crashed! Altitude={current_pos[2]:.2f}")
+                p.addUserDebugText("CRASHED", [current_pos[0], current_pos[1], 0.1], 
+                                   textColorRGB=[1, 0, 0], textSize=2, lifeTime=0, 
+                                   physicsClientId=self.env.CLIENT)
+                return True
+        else:
+            self.crash_timer[i] = 0.0
+        return False
+
+    def _process_fault_logic(self, i, drone, current_pos, t):
+        decision = self.retasker.handle(i, self.health_status[i])
+        if not decision: return None
+        
+        action = decision["action"]
+        
+        if action == "RETURN_HOME":
+            return self._navigate_fault_return(i, drone, current_pos, t)
+        elif action == "LAND_NOW":
+            return self._emergency_land(i, drone, current_pos, t)
+        elif action in ("HOVER", "REDUCED_ROLE", "HOVER_AND_RECONNECT"):
+            return self._hover_relay(i, drone, current_pos, t)
+        return None
+
+    def _navigate_fault_return(self, i, drone, current_pos, t):
+        target_pos = np.array(self.home_targets[i])
+        diff = target_pos - current_pos
+        dist = np.linalg.norm(diff)
+        
+        if dist > 0.05:
+            next_pos = current_pos + 0.3 * diff
+        else:
+            next_pos = target_pos
+            
+        if dist < 0.2:
+            controller.home_ready[i] = True
+        else:
+            controller.home_ready[i] = False
+            
+        if not self.return_active[i]:
+            self.return_active[i] = True
+            self.return_timer[i] = t
+            self.charged_complete[i] = False
+            self.return_reason[i] = "battery"
+            self.battery_return_start[i] = t
+            print(f"Agent {i} returning home for battery change.")
+            
+        return drone.step_toward(next_pos)
+
+    def _emergency_land(self, i, drone, current_pos, t):
+        target_pos = np.array([current_pos[0], current_pos[1], 0.05])
+        next_pos = current_pos + 0.2 * (target_pos - current_pos)
+        
+        # Only release once
+        if not self.crashed[i]: # Use crashed flag or separate flag to know if handled
+             self.market.release_drone_sections(i)
+             self._refresh_market_tasks(t)
+             controller.middle_text = f"Agent {i} emergency landed — sections returned."
+             
+        return drone.step_toward(next_pos)
+
+    def _hover_relay(self, i, drone, current_pos, t):
+        target_pos = np.array([current_pos[0], current_pos[1], 2])
+        next_pos = current_pos + 0.2 * (target_pos - current_pos)
+        
+        self.market.release_drone_sections(i)
+        self._refresh_market_tasks(t)
+        controller.middle_text = f"Agent {i} is being used as a relay, sections returned."
+        
+        return drone.step_toward(next_pos)
+
+    # =========================================================================
+    # SUBJECT & VOTING
+    # =========================================================================
+
+    def _should_check_for_subject(self, i):
+        return (not self.subject_found and not self.voting_active 
+                and not self.returning_home and controller.search_active 
+                and self.current_section[i] is not None 
+                and self.subject_pos is not None)
+
+    def _check_for_subject(self, i, drone, current_pos):
+        drone_xy = np.array(current_pos[:2])
+        subject_xy = np.array(self.subject_pos[:2])
+        dist_to_subject = np.linalg.norm(drone_xy - subject_xy)
+
+        is_assigned = (self.current_section[i] == self.subject_section_id and
+                       self.area.sections[self.subject_section_id].assigned_drone == i)
+
+        if is_assigned and dist_to_subject < SUBJECT_DETECTION_DIST:
+            self._trigger_voting(i)
+
+    def _trigger_voting(self, detecting_id):
+        self.subject_found = True
+        self.detecting_drone_id = detecting_id
+        self.swarm[detecting_id].subject_found = 1
+        
+        controller.middle_text = f"Drone {detecting_id} detected subject at {np.round(self.subject_pos[:2], 2)}!"
+        print(controller.middle_text)
+
+        # Select helpers
+        dists = [
+            (j, np.linalg.norm(np.array(self.swarm[j].position[:2]) - np.array(self.subject_pos[:2])))
+            for j in range(self.num_agents) if j != detecting_id
+        ]
+        dists.sort(key=lambda x: x[1])
+        self.helpers = [idx for idx, _ in dists[:3]]
+        print(f"[Subject] Verifiers assigned: {self.helpers}")
+
+        controller.voting_text = (
+            "Subject verification started\n"
+            f"Candidate position: {np.round(self.subject_pos[:2], 2)}\n"
+            f"Verifiers: {self.helpers}\n"
+        )
+
+        self.verification_targets = {}
+        angles = VOTING_ANGLES
+        for k, drone_id in enumerate(self.helpers):
+            offx = np.cos(np.radians(angles[k])) * VOTING_RADIUS
+            offy = np.sin(np.radians(angles[k])) * VOTING_RADIUS
+            self.verification_targets[drone_id] = np.array([self.subject_pos[0] + offx,
+                                                            self.subject_pos[1] + offy,
+                                                            FLY_HEIGHT])
+        
+        self.visualizer.draw_verification_targets(self.verification_targets)
+        self.voting_active = True
+        self.votes = []
+
+    def _handle_voting_behavior(self, i, drone, current_pos, t, all_positions):
+        # 1. Check for crashed verifiers
+        crashed_verifiers = [j for j in self.verification_targets.keys() if self.crashed[j]]
+        if crashed_verifiers:
+             for cv in crashed_verifiers: del self.verification_targets[cv]
+             if not self.verification_targets:
+                 self._abort_voting()
+                 return None
+
+        # 2. Logic if I am a verifier
+        if i in self.verification_targets:
+            target = self.verification_targets[i]
+            diff_xy = target[:2] - current_pos[:2]
+            dist = np.linalg.norm(diff_xy)
+            
+            if dist > VERIFICATION_DIST:
+                direction = diff_xy / (dist + 1e-6)
+                move_dist = min(dist, MAX_SPEED / self.ctrl_freq * VERIFICATION_SPEED_FACTOR)
+                next_xy = current_pos[:2] + direction * move_dist
+                next_pos = np.array([next_xy[0], next_xy[1], FLY_HEIGHT])
+                return drone.step_toward(next_pos)
+            else:
+                if i not in [v["drone_id"] for v in self.votes]:
+                    self.votes.append({"drone_id": i, "vote": "YES"})
+                    msg = f"Drone {i} votes YES at {np.round(current_pos[:2], 2)}"
+                    print(msg)
+                    controller.voting_text += msg + "\n"
+                    
+                self._check_voting_completion()
+                return drone.step_toward(np.array([current_pos[0], current_pos[1], FLY_HEIGHT]))
+
+        # 3. Logic if I am NOT a verifier (avoidance)
+        if self.current_targets[i] is not None:
+             return self._execute_search_navigation(i, drone, current_pos, t, all_positions)
+        
+        return drone.step_toward(np.array([current_pos[0], current_pos[1], FLY_HEIGHT]))
+
+    def _abort_voting(self):
+         print("[Subject] Voting aborted (verifiers crashed).")
+         self.voting_active = False
+         self.votes = []
+         self.subject_found = False
+         self.visualizer.clear_verification_targets()
+         controller.voting_text = "Voting aborted."
+
+    def _check_voting_completion(self):
+        if len(self.votes) >= len(self.verification_targets):
+            print("[Subject] Voting complete!")
+            controller.middle_text = "✅ Subject confirmed! All drones returning home."
+            controller.voting_text += "✅ Confirmed — returning home.\n"
+            
+            total_time = round(time.time() - self.measurements.metrics["start_time"], 1)
+            controller.middle_text += f"\nSubject confirmed at {np.round(self.subject_pos[:2], 2)} | Time: {total_time}s"
+            
+            # Map Coverage
+            total_sections = self.grid_size * self.grid_size
+            searched_count = sum(1 for s in self.market.sections if s["searched"])
+            coverage_pct = (searched_count / total_sections) * 100.0
+            self.measurements.record_map_coverage(coverage_pct)
+            
+            self.measurements.end_mission(success=True)
+            self.measurements.merge_market_metrics(self.market.get_metrics())
+            summary = self.measurements.get_metrics_summary()
+            print(f"Metrics: Success! Time={summary['duration']:.2f}s | Coverage={summary['map_coverage']:.1f}%")
+            
+            if self.headless:
+                self.mission_complete = True
+                return
+
+            self.returning_home = True
+            self.voting_active = False
+            self.visualizer.clear_verification_targets()
+            
+            # Highlight Found Section
+            min_dist = float("inf")
+            subject_section = None
+            for sec in self.area.sections:
+                dist_to_section = np.linalg.norm(np.array(sec.position) - np.array(self.subject_pos[:2]))
+                if dist_to_section < min_dist:
+                    min_dist = dist_to_section
+                    subject_section = sec
+            if subject_section:
+                self.env.mark_section_as_searched(subject_section.position, color=(1, 0.84, 0))
+
+    # =========================================================================
+    # NAVIGATION
+    # =========================================================================
+
+    def _calculate_return_home_action(self, i, drone, current_pos):
+        target_pos = np.array([self.home_targets[i][0], self.home_targets[i][1], FLY_HEIGHT])
+        diff = target_pos - current_pos
+        dist = np.linalg.norm(diff)
+        
+        if dist > RETURN_HOME_DIST_THRESHOLD:
+            direction = diff / (dist + 1e-6)
+            speed_scale = np.clip(dist / RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX)
+            move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * RETURN_HOME_STEP_MULTIPLIER)
+            next_pos = current_pos + direction * move_dist
+        else:
+            next_pos = target_pos
+            
+        next_pos[2] = FLY_HEIGHT
+        return drone.step_toward(next_pos)
+
+    def _execute_search_navigation(self, i, drone, current_pos, t, all_positions):
+        # 1. Fetch Task
+        if self.current_targets[i] is None:
+            try:
+                cell_id, path = next(self.drone_tasks[i])
+                self.current_targets[i] = path
+                self.path_progress[i] = 0
+                self.current_section[i] = cell_id
+                self.last_reach_time[i] = t
+                print(f"Drone {i} → new section {cell_id}")
+                
+                # Full Path Vis
+                if controller.show_full_paths:
+                    self.visualizer.draw_full_path(i, path, enabled=True)
+            except StopIteration:
+                # Hover if no tasks
+                return drone.step_toward(np.array([current_pos[0], current_pos[1], FLY_HEIGHT]))
+
+        target_pos = self.current_targets[i][self.path_progress[i]]
+
+        # 2. Visuals
+        if not self.headless:
+            if self.env.step_counter % 10 == 0:
+                 self.visualizer.update_waypoint_line(i, current_pos, target_pos, show_lines=controller.show_debug_lines)
+            elif not controller.show_debug_lines:
+                 self.visualizer.clear_debug_lines()
+
+        # 3. Physics & Avoidance
+        diff = np.array(target_pos) - current_pos
+        dist = np.linalg.norm(diff)
+        
+        speed_scale = 1.0
+        if controller.flight_mode == "standard":
+             speed_scale = np.clip(dist / NAV_STD_SPEED_DIVISOR, NAV_STD_SPEED_MIN, NAV_STD_SPEED_MAX)
+        elif controller.flight_mode == "aggressive":
+             speed_scale = NAV_AGGRESSIVE_SPEED_SCALE
+
+        move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * NAV_GLOBAL_STEP_MULTIPLIER)
+        direction = diff / (dist + 1e-6)
+        next_pos = current_pos + direction * move_dist
+
+        push_drones = avoidance_from_drones(current_pos, all_positions, i, 
+                                            radius=AVOID_DRONE_RADIUS, 
+                                            gain=AVOID_DRONE_GAIN_NAV, 
+                                            max_push=AVOID_DRONE_MAX_PUSH)
+        push_border = avoidance_from_borders(current_pos, (self.grid_size, self.grid_size), 
+                                             SECTION_SIZE, self.search_offset, 
+                                             margin=AVOID_BORDER_MARGIN_NAV, 
+                                             gain=AVOID_BORDER_GAIN, 
+                                             max_push=AVOID_BORDER_MAX_PUSH)
+        
+        next_pos += AVOIDANCE_FACTOR * (push_drones + push_border)
+        
+        # Reset internal PID occasionally
+        if int(t) % 60 == 0: drone.controller.reset()
+        
+        next_pos[2] = FLY_HEIGHT
+        action = drone.step_toward(next_pos)
+
+        # 4. Waypoint Logic
+        if dist < WAYPOINT_TOLERANCE:
+            if t - self.last_reach_time[i] > HOVER_TIME:
+                self.path_progress[i] += 1
+                self.last_reach_time[i] = t
+                if self.path_progress[i] >= len(self.current_targets[i]):
+                    self._complete_section(i, t)
+                    
+        return action
+
+    def _complete_section(self, i, t):
+        if self.current_section[i] is not None:
+            # Mark done
+            self.area.mark_searched(self.current_section[i])
+            cell_center = self.area.sections[self.current_section[i]].position
+            self.env.mark_section_as_searched(cell_center)
+            print(f"Drone {i} finished section {self.current_section[i]}")
+            
+            # Market Update
+            self.market.reward_and_remove_section(i, self.current_section[i])
+            self.measurements.increment_sections_searched(i)
+            
+            self._refresh_market_tasks(t)
+            
+            # Reset
+            self.visualizer.clear_full_path(i)
+            self.current_targets[i] = None
+            self.path_progress[i] = 0
+            self.last_reach_time[i] = t
+
+    def _handle_global_descent(self):
+        actions = np.zeros((self.num_agents, 4))
+        self.descent_timer += 1
+        
+        if self.descent_timer < self.ctrl_freq * 30: # 30s timeout
+            for i, drone in enumerate(self.swarm):
+                if self.crashed[i]: continue
+                state = drone.update()
+                current_pos = np.array(state[0:3])
+                target_pos = np.array([self.home_targets[i][0], self.home_targets[i][1], 0.05])
+                next_pos = current_pos + 0.2 * (target_pos - current_pos)
+                actions[i, :] = drone.step_toward(next_pos)
+        else:
+            self._finalize_landing()
+            
+        return actions
+
+    def _finalize_landing(self):
+        for i, drone in enumerate(self.swarm):
+            if self.crashed[i]: continue
+            p.resetBasePositionAndOrientation(
+                self.env.DRONE_IDS[i],
+                [self.home_targets[i][0], self.home_targets[i][1], 0.1],
+                [0, 0, 0, 1],
+                physicsClientId=self.env.CLIENT
+            )
+            p.resetBaseVelocity(self.env.DRONE_IDS[i], [0,0,0], [0,0,0], physicsClientId=self.env.CLIENT)
+        
+        print("All drones landed and motors shut down. Mission complete!")
+        controller.search_active = False
+        controller.simulation_running = False
+        self.mission_complete = True
+        self.show_summary()
+
+    def _update_gui_and_camera(self):
+        # 1. Update Broadcast Text
+        broadcast_lines = []
+        for i, drone in enumerate(self.swarm):
+            msg = drone.broadcast()
+            broadcast_lines.append(f"Agent {msg['ID']}: Pos={tuple(np.round(msg['Pos'],2))}, Time={msg['Timer']}s")
+        controller.broadcast_text = "\n".join(broadcast_lines)
+
+        # 2. Update Assignment Text
+        assign_lines = []
+        for i in range(self.num_agents):
+            sections = [c.id for c in self.area.sections if c.assigned_drone == i]
+            assign_lines.append(f"Drone {i}: Sections {sections}")
+        controller.assignment_text = "\n".join(assign_lines)
+
+        # 3. Update Searched Text
+        searched_lines = []
+        for c in self.area.sections:
+            status = "✅ Done" if c.searched else "🔲 Searching"
+            searched_lines.append(f"Section {c.id}: {status}")
+        controller.searched_text = "\n".join(searched_lines)
+        
+        # 4. Camera Tracking
+        if self.camera_target_id is not None:
+             if 0 <= self.camera_target_id < self.num_agents:
+                 try:
+                     pos, _ = p.getBasePositionAndOrientation(self.env.DRONE_IDS[self.camera_target_id], physicsClientId=self.env.CLIENT)
+                     p.resetDebugVisualizerCamera(
+                         cameraDistance=1.5,
+                         cameraYaw=-90,
+                         cameraPitch=-40,
+                         cameraTargetPosition=[pos[0], pos[1], pos[2]]
+                     )
+                 except Exception:
+                     pass
+
 def main():
-    pass # No OP now
+    pass

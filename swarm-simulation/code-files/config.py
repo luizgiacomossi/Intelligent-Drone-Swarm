@@ -5,12 +5,12 @@ CTRL_FREQ = 60                       # [Hz] Frequency of the control loop (physi
 GRID_SIZE = 4                        # [Integer] Dimension of the grid (GRID_SIZE x GRID_SIZE sections)
 SECTION_SIZE = 1.5                   # [Meters] Size of each square section side
 SECTION_SWEEP_STEPS = 4              # [Integer] Number of sweeps for the lawnmower pattern generation
-LAWNMOWER_MARGIN_FACTOR = 0.15       # [Float] Percentage of section size to wait before sweeping (margin for lawnmower path)
+LAWNMOWER_MARGIN_FACTOR = 0.25       # [Float] Percentage of section size to wait before sweeping (margin for lawnmower path)
 
 # --- Drone Physics & Logic ---
 HOME_POSITION = (0, 0)               # [Meters] X, Y coordinate for the drone starting/home position
 FLY_HEIGHT = 1.0                     # [Meters] Target altitude for flight
-MAX_SPEED = 10.0                      # [Meters/s] Maximum speed limit for drones
+MAX_SPEED = 9.0                      # [Meters/s] Maximum speed limit for drones
 WAYPOINT_TOLERANCE = 0.20            # [Meters] Distance tolerance to consider a waypoint reached
 HOVER_TIME = 0.05                    # [Seconds] Time to hover at a waypoint before moving to next
 BROADCAST_PERIOD = 5.0               # [Seconds] Period for drones to broadcast their status
@@ -55,7 +55,7 @@ AVOID_BORDER_MARGIN_VERIFY = 0.3     # [Meters] Safety margin distance from bord
 # --- Navigation Control Parameters ---
 NAV_STD_SPEED_DIVISOR = 1          # Divisor for distance to speed calculation in standard mode
 NAV_STD_SPEED_MIN = 1.8              # Minimum speed scale for standard mode
-NAV_STD_SPEED_MAX = 4.5              # Maximum speed scale for standard mode
+NAV_STD_SPEED_MAX = 3.5              # Maximum speed scale for standard mode
 
 NAV_AGGRESSIVE_SPEED_SCALE = 2.5     # Speed scale for aggressive mode
 
@@ -65,4 +65,4 @@ RETURN_HOME_DIST_THRESHOLD = 0.05    # [Meters] Distance to consider 'at home' t
 RETURN_HOME_SPEED_DIVISOR = 3.0
 RETURN_HOME_SPEED_MIN = 0.3
 RETURN_HOME_SPEED_MAX = 1.0
-RETURN_HOME_STEP_MULTIPLIER = 6.0    # Speed multiplier when returning home
+RETURN_HOME_STEP_MULTIPLIER = 4.0    # Speed multiplier when returning home

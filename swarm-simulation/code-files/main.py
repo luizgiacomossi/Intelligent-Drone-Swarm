@@ -30,7 +30,7 @@ from config import (
     RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX, RETURN_HOME_STEP_MULTIPLIER
 )
 from utils import (
-    generate_drone_positions, generate_lawnmower_points,
+    generate_drone_positions,
     rebuild_tasks_from_market
 )
 from measurements import MeasurementManager
@@ -666,8 +666,15 @@ class SimulationManager:
         # 1. Fetch Task
         if self.current_targets[i] is None:
             try:
-                cell_id, path = next(self.drone_tasks[i])
-                self.current_targets[i] = path
+                # cell_id, path = next(self.drone_tasks[i])
+                cell_id, cell_center = next(self.drone_tasks[i])
+                
+                # Assign section to drone (it calculates its own path)
+                drone.assign_section(cell_id, cell_center, SECTION_SIZE)
+                
+                # self.current_targets[i] = path
+                self.current_targets[i] = drone.waypoints
+                
                 self.path_progress[i] = 0
                 self.current_section[i] = cell_id
                 self.last_reach_time[i] = t
@@ -675,10 +682,10 @@ class SimulationManager:
                 
                 # Full Path Vis
                 if controller.show_full_paths:
-                    self.visualizer.draw_full_path(i, path, enabled=True)
+                    self.visualizer.draw_full_path(i, drone.waypoints, enabled=True)
             except StopIteration:
                 # Hover if no tasks
-                return drone.step_toward(np.array([current_pos[0], current_pos[1], FLY_HEIGHT]))
+                return drone.step_toward(np.array([current_pos[0], current_pos[1], FLY_HEIGHT + 1]))
 
         target_pos = self.current_targets[i][self.path_progress[i]]
 

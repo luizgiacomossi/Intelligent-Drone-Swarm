@@ -14,30 +14,6 @@ def generate_drone_positions(num_agents, home_xy):
         positions.append([x, y, z])
     return np.array(positions), radius
 
-def generate_lawnmower_points(center, section_size, steps):
-    """
-    Generates a lawnmower pattern with intermediate waypoints along scan lines.
-    
-    Args:
-        center (tuple): (x, y) center of the section.
-        section_size (float): Width/Height of the square section.
-        steps (int): Number of horizontal scan lines (rows).
-    """
-    cx, cy = center
-    half = section_size / 2
-    margin = LAWNMOWER_MARGIN_FACTOR * section_size   # a margin of 30% so that the drones cover most of the section without hitting borders.
-    x1, x2 = cx - half + margin, cx + half - margin
-    y1, y2 = cy - half + margin, cy + half - margin
-    ys = np.linspace(y1, y2, steps)
-    pts = []
-    flip = False # acts like a switch for the drone to go from (x1 -> x2) when False and then (x2 -> x1) when True and etc.
-    for y in ys:
-        if not flip:
-            pts += [(x1, y, FLY_HEIGHT), (x2, y, FLY_HEIGHT)]
-        else:
-            pts += [(x2, y, FLY_HEIGHT), (x1, y, FLY_HEIGHT)]
-        flip = not flip
-    return pts
 
 
 def rebuild_tasks_from_market(drone_tasks, market, area, swarm, num_agents):
@@ -52,6 +28,8 @@ def rebuild_tasks_from_market(drone_tasks, market, area, swarm, num_agents):
 
         paths = []
         for sec in owned:
-            path = generate_lawnmower_points(sec["pos"], area.section_size, SECTION_SWEEP_STEPS)
-            paths.append((sec["id"], path))
+            # path = generate_lawnmower_points(sec["pos"], area.section_size, SECTION_SWEEP_STEPS)
+            # paths.append((sec["id"], path))
+            # New behavior: yield section ID and center position
+            paths.append((sec["id"], sec["pos"]))
         drone_tasks[drone_id] = iter(paths)

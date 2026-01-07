@@ -4,7 +4,7 @@ import pybullet as p
 from gym_pybullet_drones.control.DSLPIDControl import DSLPIDControl
 from gym_pybullet_drones.utils.enums import DroneModel
 from tables import HEALTH_CODES
-from config import FLY_HEIGHT, RETURN_HOME_DIST_THRESHOLD, RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX, MAX_SPEED, RETURN_HOME_STEP_MULTIPLIER, LAWNMOWER_MARGIN_FACTOR
+from config import FLY_HEIGHT,SECTION_SWEEP_STEPS, RETURN_HOME_DIST_THRESHOLD, RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX, MAX_SPEED, RETURN_HOME_STEP_MULTIPLIER, LAWNMOWER_MARGIN_FACTOR
 
 DEBUG = False
 
@@ -24,6 +24,8 @@ class Drone:
 
         # --- mission section ---
         self.mission_section = None
+        self.assigned_section_center = None
+        self.assigned_section_size = None
 
         # --- Drone state ---
         self.health_status = "OK"
@@ -141,6 +143,18 @@ class Drone:
         next_pos[2] = FLY_HEIGHT
         return self.step_toward(next_pos)
 
+    def assign_section(self, section_id, center, section_size):
+        """
+        Assigns a section to the drone and generates the scan path using internal logic.
+        """
+        self.mission_section = section_id
+        self.assigned_section_center = center
+        self.assigned_section_size = section_size
+        
+        # Calculate waypoints internally
+        self.waypoints = self.generate_lawnmower_points(center, section_size, SECTION_SWEEP_STEPS)
+        self.waypoint_index = 0
+
     def generate_lawnmower_points(self, center, section_size, steps):
         """
         Generates a lawnmower pattern with intermediate waypoints along scan lines.
@@ -164,4 +178,45 @@ class Drone:
             else:
                 pts += [(x2, y, FLY_HEIGHT), (x1, y, FLY_HEIGHT)]
             flip = not flip
+        return pts
+
+    def generate_lawnmower_points_new(self, center, section_size, steps, samples_per_line=5):
+        """
+        Generates a lawnmower pattern with intermediate waypoints along scan lines.
+        
+        Args:
+            center (tuple): (x, y) center of the section.
+            section_size (float): Width/Height of the square section.
+            steps (int): Number of horizontal scan lines (rows).
+            samples_per_line (int): Number of points to generate per horizontal line.
+        """
+        cx, cy = center
+        half = section_size / 2
+        margin = LAWNMOWER_MARGIN_FACTOR * section_size 
+        
+        # Define limites horizontais e verticais
+        x1, x2 = cx - half + margin, cx + half - margin
+        y1, y2 = cy - half + margin, cy + half - margin
+        
+        # Gera as coordenadas Y (linhas de varredura)
+        ys = np.linspace(y1, y2, steps)
+        pts = []
+        
+        flip = False 
+
+        for y in ys:
+            if not flip:
+                # Gera pontos da esquerda para a direita (x1 -> x2)
+                xs = np.linspace(x1, x2, samples_per_line)
+            else:
+                # Gera pontos da direita para a esquerda (x2 -> x1)
+                xs = np.linspace(x2, x1, samples_per_line)
+                
+            # Combina os Xs gerados com o Y atual e a altura de voo
+            # Utilizando list comprehension para eficiência
+            row_points = [(x, y, FLY_HEIGHT) for x in xs]
+            pts.extend(row_points)
+            
+            flip = not flip
+            
         return pts

@@ -10,7 +10,7 @@ import os
 # Ensure we can import local modules
 sys.path.append(os.getcwd())
 
-def run_experiment(num_agents, num_faults=0, max_steps=100000, headless=True):
+def run_experiment(num_agents, num_faults=0, max_steps=100000, grid_size=8, headless=True):
     """
     Runs a single simulation experiment.
     """
@@ -26,7 +26,7 @@ def run_experiment(num_agents, num_faults=0, max_steps=100000, headless=True):
     controller.charged_drones = set()
     
     # Init Simulation
-    sim = main.SimulationManager(num_agents=num_agents, grid_size=4, headless=headless)
+    sim = main.SimulationManager(num_agents=num_agents, grid_size=grid_size, headless=headless)
     
     # Inject faults if requested (simple modification to main/controller for pre-planned faults)
     # For now, we will simulate faults by manually injecting them at step X.

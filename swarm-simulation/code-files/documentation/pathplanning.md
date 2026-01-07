@@ -14,7 +14,7 @@ Upon securing a task assignment (grid section), the agent transitions to the loc
 
 *   **Strategy**: The system employs a **Boustrophedon (Lawnmower) Decomposition** technique. This deterministic coverage algorithm guarantees complete sensor coverage of the assigned rectangular region by generating a sequence of parallel waypoints.
 *   **Path Geometry**: The path $\mathcal{P}_i = \{w_1, w_2, ..., w_k\}$ is generated relative to the section's centroid, with sweep spacing determined by the sensor's effective field of view to minimize overlap while ensuring zero coverage gaps.
-*   **Implementation**: computed in `main.py` via `generate_lawnmower_points()`, producing a sequence of 3D coordinates $(x, y, z)$ that constitute the reference trajectory.
+*   **Implementation**: computed via the `Guidance` class (`guidance.py`), producing a sequence of 3D coordinates $(x, y, z)$ that constitute the reference trajectory.
 
 ## 3. Reactive Control Layer: Hybrid Navigation
 The lowest layer executes the generated trajectory while maintaining safety through a hybrid control scheme that combines global path following with local reactive collision avoidance.

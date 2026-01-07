@@ -10,9 +10,9 @@ LAWNMOWER_MARGIN_FACTOR = 0.25       # [Float] Percentage of section size to wai
 # --- Drone Physics & Logic ---
 HOME_POSITION = (0, 0)               # [Meters] X, Y coordinate for the drone starting/home position
 FLY_HEIGHT = 1.0                     # [Meters] Target altitude for flight
-MAX_SPEED = 9.0                      # [Meters/s] Maximum speed limit for drones
+MAX_SPEED = 8.0                      # [Meters/s] Maximum speed limit for drones
 WAYPOINT_TOLERANCE = 0.15            # [Meters] Distance tolerance to consider a waypoint reached
-HOVER_TIME = 0.5                    # [Seconds] Time to hover at a waypoint before moving to next
+HOVER_TIME = 1                    # [Seconds] Time to hover at a waypoint before moving to next
 BROADCAST_PERIOD = 5.0               # [Seconds] Period for drones to broadcast their status
 RETURN_TIMEOUT = 10.0                # [Seconds] Timeout before assuming a drone is lost/crashed
 CRASH_HEIGHT_THRESHOLD = 0.1         # [Meters] Altitude below which a drone is considered crashed
@@ -53,7 +53,7 @@ AVOID_BORDER_MARGIN_NAV = 0.1        # [Meters] Safety margin distance from bord
 AVOID_BORDER_MARGIN_VERIFY = 0.3     # [Meters] Safety margin distance from border during verification
 
 # --- Navigation Control Parameters ---
-NAV_STD_SPEED_DIVISOR = 1          # Divisor for distance to speed calculation in standard mode
+NAV_STD_SPEED_DIVISOR = 1.2          # Divisor for distance to speed calculation in standard mode
 NAV_STD_SPEED_MIN = 1.8              # Minimum speed scale for standard mode
 NAV_STD_SPEED_MAX = 3.5              # Maximum speed scale for standard mode
 

@@ -35,6 +35,11 @@ class MarketSystem:
         self.reallocations = [] # list of (latency, section_id)
         self.costs_paid = [] # list of prices paid
         self.successful_recoveries = 0 # count of released sections that were finished
+        
+        # New Metrics
+        self.cumulative_bids = 0
+        self.total_auctions = 0 # count of auction events (per section)
+        self.wasted_attempts = 0 # count of attempts to claim searched sections
 
     def compute_dynamic_price(self, drone_pos, section_pos):
         """Price increases with distance (only in dynamic phase)."""
@@ -117,7 +122,11 @@ class MarketSystem:
                 continue
             for drone_id, pos in enumerate(drone_positions):
                 price = self.compute_dynamic_price(pos, s["pos"])
+                price = self.compute_dynamic_price(pos, s["pos"])
                 bids.append((s["id"], drone_id, price))
+                self.cumulative_bids += 1
+                
+            self.total_auctions += 1
 
         bids.sort(key=lambda b: b[2])
 
@@ -173,6 +182,7 @@ class MarketSystem:
         """
         sec = next(s for s in self.sections if s["id"] == section_id)
         if sec["searched"]:
+            self.wasted_attempts += 1
             return False  # already done
 
         reward = sec["value"]
@@ -250,5 +260,8 @@ class MarketSystem:
         return {
             "reallocation_time": avg_latency,
             "cost_efficiency": avg_cost,
-            "recovery_count": self.successful_recoveries
+            "recovery_count": self.successful_recoveries,
+            "total_bids": self.cumulative_bids,
+            "total_auctions": self.total_auctions,
+            "wasted_attempts": self.wasted_attempts
         }

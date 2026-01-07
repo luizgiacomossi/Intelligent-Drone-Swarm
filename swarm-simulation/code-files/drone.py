@@ -4,14 +4,21 @@ import pybullet as p
 from gym_pybullet_drones.control.DSLPIDControl import DSLPIDControl
 from gym_pybullet_drones.utils.enums import DroneModel
 from tables import HEALTH_CODES
-from config import FLY_HEIGHT,SECTION_SWEEP_STEPS, RETURN_HOME_DIST_THRESHOLD, RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX, MAX_SPEED, RETURN_HOME_STEP_MULTIPLIER, LAWNMOWER_MARGIN_FACTOR
+from guidance import Guidance
+from config import (
+    FLY_HEIGHT, SECTION_SWEEP_STEPS, RETURN_HOME_DIST_THRESHOLD,
+    RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX,
+    MAX_SPEED, RETURN_HOME_STEP_MULTIPLIER, LAWNMOWER_MARGIN_FACTOR,
+    NAV_STD_SPEED_DIVISOR, NAV_STD_SPEED_MIN, NAV_STD_SPEED_MAX,
+    NAV_AGGRESSIVE_SPEED_SCALE, NAV_GLOBAL_STEP_MULTIPLIER
+)
 
 DEBUG = False
 
 class Drone:
     """Drone agent with selective communication behavior."""
 
-    def __init__(self, drone_id, env, init_position):
+    def __init__(self, drone_id: int, env, init_position: list):
         self.id = drone_id
         self.env = env
         self.position = np.array(init_position, dtype=float)
@@ -143,80 +150,111 @@ class Drone:
         next_pos[2] = FLY_HEIGHT
         return self.step_toward(next_pos)
 
-    def assign_section(self, section_id, center, section_size):
+    def assign_section(self, section_id: int, center: tuple, section_size: float) -> None:
         """
-        Assigns a section to the drone and generates the scan path using internal logic.
+        Assigns a section to the drone and generates the scan path using Guidance logic.
+
+        Args:
+            section_id (int): ID of the section.
+            center (tuple): (x, y) center of the section.
+            section_size (float): Size of the section.
         """
         self.mission_section = section_id
         self.assigned_section_center = center
         self.assigned_section_size = section_size
         
-        # Calculate waypoints internally
-        self.waypoints = self.generate_lawnmower_points(center, section_size, SECTION_SWEEP_STEPS)
+        # Calculate waypoints using Guidance module
+        # Note: Using the original generate_lawnmower_points as it was used before.
+        # Use generate_lawnmower_points_new if denser points are needed.
+        self.waypoints = Guidance.generate_lawnmower_points(center, section_size, SECTION_SWEEP_STEPS)
         self.waypoint_index = 0
 
-    def generate_lawnmower_points(self, center, section_size, steps):
+    def compute_return_home_step(self, home_pos: np.ndarray, fly_height: float, ctrl_freq: float) -> np.ndarray:
         """
-        Generates a lawnmower pattern with intermediate waypoints along scan lines.
-        
-        Args:
-            center (tuple): (x, y) center of the section.
-            section_size (float): Width/Height of the square section.
-            steps (int): Number of horizontal scan lines (rows).
-        """
-        cx, cy = center
-        half = section_size / 2
-        margin = LAWNMOWER_MARGIN_FACTOR * section_size   # a margin of 30% so that the drones cover most of the section without hitting borders.
-        x1, x2 = cx - half + margin, cx + half - margin
-        y1, y2 = cy - half + margin, cy + half - margin
-        ys = np.linspace(y1, y2, steps)
-        pts = []
-        flip = False # acts like a switch for the drone to go from (x1 -> x2) when False and then (x2 -> x1) when True and etc.
-        for y in ys:
-            if not flip:
-                pts += [(x1, y, FLY_HEIGHT), (x2, y, FLY_HEIGHT)]
-            else:
-                pts += [(x2, y, FLY_HEIGHT), (x1, y, FLY_HEIGHT)]
-            flip = not flip
-        return pts
+        Calculates the RPM action to return to home position.
 
-    def generate_lawnmower_points_new(self, center, section_size, steps, samples_per_line=5):
-        """
-        Generates a lawnmower pattern with intermediate waypoints along scan lines.
-        
         Args:
-            center (tuple): (x, y) center of the section.
-            section_size (float): Width/Height of the square section.
-            steps (int): Number of horizontal scan lines (rows).
-            samples_per_line (int): Number of points to generate per horizontal line.
-        """
-        cx, cy = center
-        half = section_size / 2
-        margin = LAWNMOWER_MARGIN_FACTOR * section_size 
-        
-        # Define limites horizontais e verticais
-        x1, x2 = cx - half + margin, cx + half - margin
-        y1, y2 = cy - half + margin, cy + half - margin
-        
-        # Gera as coordenadas Y (linhas de varredura)
-        ys = np.linspace(y1, y2, steps)
-        pts = []
-        
-        flip = False 
+            home_pos (np.ndarray): Target home position (x, y).
+            fly_height (float): Target flying height.
+            ctrl_freq (float): Control frequency.
 
-        for y in ys:
-            if not flip:
-                # Gera pontos da esquerda para a direita (x1 -> x2)
-                xs = np.linspace(x1, x2, samples_per_line)
-            else:
-                # Gera pontos da direita para a esquerda (x2 -> x1)
-                xs = np.linspace(x2, x1, samples_per_line)
-                
-            # Combina os Xs gerados com o Y atual e a altura de voo
-            # Utilizando list comprehension para eficiência
-            row_points = [(x, y, FLY_HEIGHT) for x in xs]
-            pts.extend(row_points)
+        Returns:
+            np.ndarray: RPM action.
+        """
+        target_pos = np.array([home_pos[0], home_pos[1], fly_height])
+        diff = target_pos - self.position
+        dist = np.linalg.norm(diff)
+        
+        if dist > RETURN_HOME_DIST_THRESHOLD:
+            direction = diff / (dist + 1e-6)
+            speed_scale = np.clip(dist / RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX)
+            move_dist = min(dist, MAX_SPEED * speed_scale / ctrl_freq * RETURN_HOME_STEP_MULTIPLIER)
+            next_pos = self.position + direction * move_dist
+        else:
+            next_pos = target_pos
             
-            flip = not flip
-            
-        return pts
+        next_pos[2] = fly_height
+        return self.step_toward(next_pos)
+
+    def compute_search_step(self, target_pos: np.ndarray, flight_mode: str, avoidance_vec: np.ndarray, ctrl_freq: float) -> np.ndarray:
+        """
+        Calculates the RPM action to move towards a search target with avoidance.
+
+        Args:
+            target_pos (np.ndarray): Target waypoint position.
+            flight_mode (str): Flight mode ('standard' or 'aggressive').
+            avoidance_vec (np.ndarray): Calculated avoidance vector.
+            ctrl_freq (float): Control frequency.
+
+        Returns:
+            np.ndarray: RPM action.
+        """
+        diff = np.array(target_pos) - self.position
+        dist = np.linalg.norm(diff)
+        
+        speed_scale = 1.0
+        if flight_mode == "standard":
+             speed_scale = np.clip(dist / NAV_STD_SPEED_DIVISOR, NAV_STD_SPEED_MIN, NAV_STD_SPEED_MAX)
+        elif flight_mode == "aggressive":
+             speed_scale = NAV_AGGRESSIVE_SPEED_SCALE
+
+        move_dist = min(dist * speed_scale, MAX_SPEED * speed_scale / ctrl_freq * NAV_GLOBAL_STEP_MULTIPLIER)
+        direction = diff / (dist + 1e-6)
+        next_pos = self.position + direction * move_dist
+
+        # Apply avoidance
+        next_pos += avoidance_vec
+        
+        next_pos[2] = FLY_HEIGHT
+        return self.step_toward(next_pos)
+    
+    def check_waypoint_reached(self, target_pos: np.ndarray, tolerance: float) -> bool:
+        """
+        Checks if the drone has reached the target waypoint.
+
+        Args:
+            target_pos (np.ndarray): Target position.
+            tolerance (float): Distance tolerance.
+
+        Returns:
+            bool: True if reached, False otherwise.
+        """
+        diff = np.array(target_pos) - self.position
+        dist = np.linalg.norm(diff)
+        return dist < tolerance
+
+    def detect_subject(self, subject_pos: np.ndarray, detection_dist: float) -> bool:
+        """
+        Checks if the subject is within detection range.
+
+        Args:
+            subject_pos (np.ndarray): Position of the subject (x, y).
+            detection_dist (float): Maximum detection distance.
+
+        Returns:
+            bool: True if detected.
+        """
+        drone_xy = self.position[:2]
+        subject_xy = np.array(subject_pos[:2])
+        dist_to_subject = np.linalg.norm(drone_xy - subject_xy)
+        return dist_to_subject < detection_dist

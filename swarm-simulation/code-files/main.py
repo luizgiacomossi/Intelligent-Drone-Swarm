@@ -515,7 +515,7 @@ class SimulationManager:
         is_assigned = (self.current_section[i] == self.subject_section_id and
                        self.area.sections[self.subject_section_id].assigned_drone == i)
 
-        if is_assigned and dist_to_subject < SUBJECT_DETECTION_DIST:
+        if is_assigned and drone.detect_subject(self.subject_pos, SUBJECT_DETECTION_DIST):
             self._trigger_voting(i)
 
     def _trigger_voting(self, detecting_id):
@@ -589,6 +589,11 @@ class SimulationManager:
                 self._check_voting_completion()
                 return drone.step_toward(np.array([current_pos[0], current_pos[1], FLY_HEIGHT]))
 
+        if i == self.detecting_drone_id:
+            # Detecting drone behavior: Hover 1m higher and wait
+            target_pos = np.array([current_pos[0], current_pos[1], FLY_HEIGHT + 1.0])
+            return drone.step_toward(target_pos)
+
         # 3. Logic if I am NOT a verifier (avoidance)
         if self.current_targets[i] is not None:
              return self._execute_search_navigation(i, drone, current_pos, t, all_positions)
@@ -647,20 +652,11 @@ class SimulationManager:
     # =========================================================================
 
     def _calculate_return_home_action(self, i, drone, current_pos):
-        target_pos = np.array([self.home_targets[i][0], self.home_targets[i][1], FLY_HEIGHT])
-        diff = target_pos - current_pos
-        dist = np.linalg.norm(diff)
-        
-        if dist > RETURN_HOME_DIST_THRESHOLD:
-            direction = diff / (dist + 1e-6)
-            speed_scale = np.clip(dist / RETURN_HOME_SPEED_DIVISOR, RETURN_HOME_SPEED_MIN, RETURN_HOME_SPEED_MAX)
-            move_dist = min(dist, MAX_SPEED * speed_scale / self.ctrl_freq * RETURN_HOME_STEP_MULTIPLIER)
-            next_pos = current_pos + direction * move_dist
-        else:
-            next_pos = target_pos
-            
-        next_pos[2] = FLY_HEIGHT
-        return drone.step_toward(next_pos)
+        return drone.compute_return_home_step(
+            home_pos=self.home_targets[i],
+            fly_height=FLY_HEIGHT,
+            ctrl_freq=self.ctrl_freq
+        )
 
     def _execute_search_navigation(self, i, drone, current_pos, t, all_positions):
         # 1. Fetch Task
@@ -697,19 +693,6 @@ class SimulationManager:
                  self.visualizer.clear_debug_lines()
 
         # 3. Physics & Avoidance
-        diff = np.array(target_pos) - current_pos
-        dist = np.linalg.norm(diff)
-        
-        speed_scale = 1.0
-        if controller.flight_mode == "standard":
-             speed_scale = np.clip(dist / NAV_STD_SPEED_DIVISOR, NAV_STD_SPEED_MIN, NAV_STD_SPEED_MAX)
-        elif controller.flight_mode == "aggressive":
-             speed_scale = NAV_AGGRESSIVE_SPEED_SCALE
-
-        move_dist = min(dist * 2, MAX_SPEED * speed_scale / self.ctrl_freq * NAV_GLOBAL_STEP_MULTIPLIER)
-        direction = diff / (dist + 1e-6)
-        next_pos = current_pos + direction * move_dist
-
         push_drones = avoidance_from_drones(current_pos, all_positions, i, 
                                             radius=AVOID_DRONE_RADIUS, 
                                             gain=AVOID_DRONE_GAIN_NAV, 
@@ -720,16 +703,20 @@ class SimulationManager:
                                              gain=AVOID_BORDER_GAIN, 
                                              max_push=AVOID_BORDER_MAX_PUSH)
         
-        next_pos += AVOIDANCE_FACTOR * (push_drones + push_border)
-        
+        avoidance_vec = AVOIDANCE_FACTOR * (push_drones + push_border)
+
         # Reset internal PID occasionally
         if int(t) % 60 == 0: drone.controller.reset()
-        
-        next_pos[2] = FLY_HEIGHT
-        action = drone.step_toward(next_pos)
+
+        action = drone.compute_search_step(
+            target_pos=target_pos,
+            flight_mode=controller.flight_mode,
+            avoidance_vec=avoidance_vec,
+            ctrl_freq=self.ctrl_freq
+        )
 
         # 4. Waypoint Logic
-        if dist < WAYPOINT_TOLERANCE:
+        if drone.check_waypoint_reached(target_pos, WAYPOINT_TOLERANCE):
             if t - self.last_reach_time[i] > HOVER_TIME:
                 self.path_progress[i] += 1
                 self.last_reach_time[i] = t

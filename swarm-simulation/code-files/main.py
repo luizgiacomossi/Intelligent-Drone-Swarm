@@ -841,13 +841,13 @@ class SimulationManager:
                      # 4. Set Camera
                      # Dynamic zoom: Base distance + scale factor * spread
                      # We limit min distance for closeups and allow it to grow
-                     zoom_distance = 6.0 + 1.2 * max_dist 
+                     zoom_distance = 1.2 * max_dist 
                      
                      p.resetDebugVisualizerCamera(
                          cameraDistance=zoom_distance,
-                         cameraYaw=-90,   # Top-down view or slight angle
-                         cameraPitch=-89, # Nearly top-down for swarm view
-                         cameraTargetPosition=[centroid[0], centroid[1], 0] # Ground focus often better than tracking altitude mean
+                         cameraYaw=-90,
+                         cameraPitch=-30, # Perspective view
+                         cameraTargetPosition=[centroid[0], centroid[1], 0]
                      )
                  except Exception:
                      pass

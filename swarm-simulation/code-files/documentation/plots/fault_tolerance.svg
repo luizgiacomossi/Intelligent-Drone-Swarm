@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="450" viewBox="0 0 600 450">
+<rect width="100%" height="100%" fill="white" />
+<text x="300.0" y="30" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="#333" >System Resilience: Fault Impact</text>
+<line x1="60" y1="390.0" x2="540" y2="390.0" stroke="#ccc" stroke-width="1" stroke-dasharray="4,4" />
+<text x="50" y="395.0" font-family="Arial, sans-serif" font-size="10" font-weight="normal" text-anchor="end" fill="#666" >0.0</text>
+<line x1="60" y1="324.0" x2="540" y2="324.0" stroke="#ccc" stroke-width="1" stroke-dasharray="4,4" />
+<text x="50" y="329.0" font-family="Arial, sans-serif" font-size="10" font-weight="normal" text-anchor="end" fill="#666" >74.0</text>
+<line x1="60" y1="258.0" x2="540" y2="258.0" stroke="#ccc" stroke-width="1" stroke-dasharray="4,4" />
+<text x="50" y="263.0" font-family="Arial, sans-serif" font-size="10" font-weight="normal" text-anchor="end" fill="#666" >148.0</text>
+<line x1="60" y1="192.00000000000003" x2="540" y2="192.00000000000003" stroke="#ccc" stroke-width="1" stroke-dasharray="4,4" />
+<text x="50" y="197.00000000000003" font-family="Arial, sans-serif" font-size="10" font-weight="normal" text-anchor="end" fill="#666" >222.0</text>
+<line x1="60" y1="126.0" x2="540" y2="126.0" stroke="#ccc" stroke-width="1" stroke-dasharray="4,4" />
+<text x="50" y="131.0" font-family="Arial, sans-serif" font-size="10" font-weight="normal" text-anchor="end" fill="#666" >296.0</text>
+<line x1="60" y1="60.0" x2="540" y2="60.0" stroke="#ccc" stroke-width="1" stroke-dasharray="4,4" />
+<text x="50" y="65.0" font-family="Arial, sans-serif" font-size="10" font-weight="normal" text-anchor="end" fill="#666" >370.0</text>
+<text x="30.0" y="225.0" font-family="Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#444" transform="rotate(-90 30.0 225.0)">Duration (s)</text>
+<rect x="92.0" y="136.4580023582491" width="96.0" height="253.5419976417509" fill="#2ecc71" fill-opacity="0.8" stroke="none" />
+<text x="140.0" y="410" font-family="Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="middle" fill="#333" >Baseline (N=8)</text>
+<text x="140.0" y="131.4580023582491" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333" >284.3</text>
+<rect x="252.0" y="106.79162524317383" width="96.0" height="283.2083747568262" fill="#f1c40f" fill-opacity="0.8" stroke="none" />
+<text x="300.0" y="410" font-family="Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="middle" fill="#333" >1 Fault</text>
+<text x="300.0" y="101.79162524317383" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333" >317.6</text>
+<rect x="412.0" y="90.00000000000006" width="96.0" height="299.99999999999994" fill="#e74c3c" fill-opacity="0.8" stroke="none" />
+<text x="460.0" y="410" font-family="Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="middle" fill="#333" >2 Faults</text>
+<text x="460.0" y="85.00000000000006" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#333" >336.4</text>
+</svg>

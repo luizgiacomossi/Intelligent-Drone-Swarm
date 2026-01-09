@@ -8,7 +8,7 @@ The simulation is implemented using `gym-pybullet-drones`, integrated with a cus
 
 *   **Simulation Environment**: 3D physics engine (PyBullet) with `Crazyflie 2.x` dynamics.
 *   **Control Frequency**: $60 \text{ Hz}$.
-*   **Search Domain**: A discretized $4 \times 4$ grid (16 independent search sections).
+*   **Search Domain**: A discretized $8 \times 8$ grid (64 independent search sections).
 *   **Statistical Significance**: Each experimental configuration is executed for $K=30$ independent trials to ensure statistical robustness. Results are reported as Mean $\pm$ Standard Deviation ($\mu \pm \sigma$).
 
 ## 2. Experimental Scenarios

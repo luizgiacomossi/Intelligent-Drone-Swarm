@@ -7,7 +7,7 @@ To validate the effectiveness of the proposed market-based consensus system, we 
 The simulation is built upon the `gym-pybullet-drones` environment.
 
 ### 4.1.1 Environment Parameters
--   **Search Area**: $4 \times 4$ grid (16 sections total).
+-   **Search Area**: $8 \times 8$ grid (64 sections total).
 -   **Section Size**: $1.5m \times 1.5m$.
 -   **Drone Model**: Crazyflie 2.x dynamics.
 -   **Control Frequency**: 60 Hz.

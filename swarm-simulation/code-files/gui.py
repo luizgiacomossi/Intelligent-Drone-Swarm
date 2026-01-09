@@ -125,6 +125,7 @@ class DroneControlUI(QWidget):
         self.camera_selector = QComboBox()
         self.camera_selector.addItem("Free Cam", -1)
         self.camera_selector.addItem("Swarm View", -2)
+        self.camera_selector.addItem("Superior View", -3)
         self.camera_selector.addItems([f"Drone {i}" for i in range(16)]) # Pre-populate enough slots
         # Note: We should dynamically update this based on num_drones, but static is easier for now to avoid complexity in initialization order.
         
@@ -317,6 +318,8 @@ class DroneControlUI(QWidget):
             target_id = -1
         elif "Swarm" in text:
             target_id = -2
+        elif "Superior" in text:
+            target_id = -3
         else:
             try:
                 target_id = int(text.split(" ")[1])

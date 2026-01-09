@@ -852,5 +852,30 @@ class SimulationManager:
                  except Exception:
                      pass
 
+             # Case 3: Superior View (-3)
+             elif self.camera_target_id == -3:
+                 try:
+                     # Calculate center of search area
+                     center_x = self.area.sections[0].position[0] - SECTION_SIZE/2 + (self.grid_size * SECTION_SIZE) / 2
+                     center_y = self.area.sections[0].position[1] - SECTION_SIZE/2 + (self.grid_size * SECTION_SIZE) / 2
+                     
+                     # Or use the search_offset directly if easier:
+                     center_x, center_y = self.search_offset
+                     
+                     # Height needs to cover the whole grid
+                     # 60 deg FOV assumption -> height ~ width / (2 * tan(30))
+                     # width = grid_size * section_size
+                     width = self.grid_size * SECTION_SIZE
+                     height = (width / 2.0) / np.tan(np.radians(30))
+                     
+                     p.resetDebugVisualizerCamera(
+                         cameraDistance=height * 1.5, # 1.5x margin
+                         cameraYaw=0,
+                         cameraPitch=-89.9, # Top down (90 causes gimbal lock sometimes)
+                         cameraTargetPosition=[center_x, center_y, 0]
+                     )
+                 except Exception:
+                     pass
+
 def main():
     pass

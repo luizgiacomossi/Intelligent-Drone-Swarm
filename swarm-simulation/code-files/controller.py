@@ -79,8 +79,20 @@ def mark_drone_charged(drone_id):
         home_ready[drone_id] = False  # reset flag
         print(f"[Controller] Drone {drone_id} marked as charged.")
 
+# Camera Modes
+CAMERA_MODE_FREE = -1
+CAMERA_MODE_SWARM = -2
+CAMERA_MODE_SUPERIOR = -3
+
 def set_camera_target(drone_id):
-    """Called from GUI to set camera target. Pass None or -1 to disable tracking."""
+    """
+    Called from GUI to set camera target.
+    Options:
+      - Positive int or 0: Track specific drone ID
+      - -1: Free Cam (tracking disabled)
+      - -2: Swarm View (centroid tracking)
+      - -3: Superior View (Top-down map view)
+    """
     global _sim_instance
     if _sim_instance:
         if drone_id == -1:

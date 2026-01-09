@@ -7,6 +7,8 @@ The system demonstrates **superlinear scalability** when increasing from $N=2$ t
 *   **N=4**: $\mu=443s$. **Speedup factor of 1.4x**. While less than linear ($2.0x$), this reflects the trade-off between coverage speed and coordination overhead.
 *   **N=8**: $\mu=284s$. Time improvement continues (1.5x vs N=4). The congestion overhead and limited work per agent (avg 2 sections) suggests $N=8$ provides the raw fastest performance, though with diminishing efficiency per node.
 
+![Scalability Results](plots/scalability_duration.svg)
+
 ## 2. Fault Tolerance and Resilience
 The most significant finding is the system's **robustness under failure**.
 
@@ -16,10 +18,14 @@ The most significant finding is the system's **robustness under failure**.
     *   **Fault_2**: Average duration of **336s**.
     *   **Insight**: Despite losing 1-2 agents (12-25% force reduction), the mission time only increased by ~12-18%. The market reorganized the remaining workforce to absorb the slack efficiently.
 
+![Fault Tolerance Results](plots/fault_tolerance.svg)
+
 ## 3. Workload Balance (Gini Coefficient)
 The market mechanism maintains high equity even during dynamic replanning.
 *   **Baseline**: $G \approx 0.02 - 0.12$ (Very low inequality).
 *   **Faults**: In Scenario B, inequality rises moderately to $0.19$ (1 fault) and $0.26$ (2 faults). This change is expected and desirable: healthy agents *must* take on disproportionate work to compensate for failures. A $G < 0.3$ under partial system collapse is an excellent result.
+
+![Gini Coefficient Results](plots/gini_index.svg)
 
 ## 4. Anomalies
 *   **N=8 Baseline Performance**: The high standard deviation ($\sigma=390s$) in the fault-free $N=8$ case is notable. It appears that without the "urgency" of fault-triggered reallocation, the swarm in a crowded space occasionally enters suboptimal interference patterns or deadlock states, leading to timeouts. The fault injection paradoxically improves consistency by thinning the crowd.

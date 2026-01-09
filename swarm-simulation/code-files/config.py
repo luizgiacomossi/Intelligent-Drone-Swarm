@@ -2,7 +2,7 @@
 
 # --- Simulation Constants ---
 CTRL_FREQ = 60                       # [Hz] Frequency of the control loop (physics acts every 1/60s)
-GRID_SIZE = 4                        # [Integer] Dimension of the grid (GRID_SIZE x GRID_SIZE sections)
+GRID_SIZE = 8                        # [Integer] Dimension of the grid (GRID_SIZE x GRID_SIZE sections)
 SECTION_SIZE = 1.5                   # [Meters] Size of each square section side
 SECTION_SWEEP_STEPS = 4              # [Integer] Number of sweeps for the lawnmower pattern generation
 LAWNMOWER_MARGIN_FACTOR = 0.25       # [Float] Percentage of section size to wait before sweeping (margin for lawnmower path)

@@ -10,7 +10,7 @@ This repository contains a high-fidelity simulation of a Multi-UAV system design
 
 *   **Market-Based Task Allocation**: Drones bid for search sections based on a dynamic pricing model (Distance + Base Value), ensuring efficient workload distribution.
 *   **Resilient Retasking**: Automatic detection of agent failures (e.g., Low Battery, GPS Failure). Failed agents release their tasks back to the market for immediate reallocation.
-*   **Consensus Verification**: A spatial voting protocol where neighbor drones are recruited to verify potential target detections, minimizing false positives ($P_{error} < 10^{-4}$).
+*   **Consensus Verification**: A spatial voting protocol where neighbor drones are recruited to verify potential target detections, minimizing false positives.
 *   **Reactive Collision Avoidance**: Decentralized navigation using Artificial Potential Fields (APF).
 *   **Physics-Based Simulation**: Built on `gym-pybullet-drones` for realistic flight dynamics and sensor simulation.
 

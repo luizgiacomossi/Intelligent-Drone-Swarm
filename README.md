@@ -66,20 +66,3 @@ The software is organized into modular components managed by a central `Simulati
     ├── 03_algorithm_implementation.md # (Detailed) Code specs
     └── 04_experiments_and_results.md # (Detailed) Metrics
 ```
-
-## 📚 Documentation
-
-For detailed theoretical/mathematical explanations, please refer to the `documentation/` folder:
-*   [Methodology (Unified)](documentation/methodology.md)
-*   [Experimental Results (Unified)](documentation/experiments.md)
-
-# Contributors
-
-**Project owner:** <a href="https://www.mdu.se/staff?id=lgr03">Luiz Giacomossi</a> (<a href="mailto:luiz.giacomossi@mdu.se">email</a>)
-
-### Project Group Members
-- Andrea Haglund, Chief Engineer
-- Claire Namatovu, Requirements Manager
-- Emily Zainali, Validation & Verification Manager
-- Esaias Målqvist, Safety Manager
-- Yonatan Michael Beyene, Quality & Configuration Manager
